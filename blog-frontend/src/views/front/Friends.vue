@@ -6,7 +6,7 @@
         <p class="page-description">志同道合的朋友们</p>
       </div>
 
-      <div class="friends-grid" v-if="friendLinks.length > 0">
+      <div v-if="friendLinks.length > 0" class="friends-grid">
         <div
           v-for="link in friendLinks"
           :key="link.id"
@@ -22,7 +22,7 @@
         </div>
       </div>
 
-      <div class="empty-state" v-else>
+      <div v-else class="empty-state">
         <component :is="Link" class="empty-icon" />
         <p>暂无友链</p>
       </div>
@@ -43,27 +43,42 @@
 </template>
 
 <script setup lang="ts">
+/**
+ * 前台友链页。
+ *
+ * <p>只展示后台标记为「显示」的友链，按 sort 升序排列。</p>
+ */
+import { logError } from '@/utils/logError'
 import { onMounted, ref } from 'vue'
 import { friendLinkApi, FriendLinkVO } from '@/api/friendLink'
 import FrontLayout from '@/layouts/FrontLayout.vue'
 import { Link } from '@element-plus/icons-vue'
 
+/** 友链列表 */
 const friendLinks = ref<FriendLinkVO[]>([])
 
+/** 加载友链列表 */
 async function fetchFriendLinks() {
   try {
     const res = await friendLinkApi.getActiveFriendLinks()
     friendLinks.value = res
   } catch (error) {
-    console.error('获取友链失败:', error)
+    logError('获取友链失败:', error)
   }
 }
 
-function handleAvatarError(event: Event, link: FriendLinkVO) {
+/**
+ * 头像加载失败时的兜底：替换为本地默认头像。
+ *
+ * @param event 图片错误事件
+ * @param _link 所属友链（当前未使用，保留以便后续区分）
+ */
+function handleAvatarError(event: Event, _link: FriendLinkVO) {
   const img = event.target as HTMLImageElement
   img.src = '/friend-avatar.png'
 }
 
+/** 初始化加载 */
 onMounted(() => {
   fetchFriendLinks()
 })
@@ -81,7 +96,7 @@ onMounted(() => {
   text-align: center;
   padding: 40px 20px;
   margin-bottom: 32px;
-  background: linear-gradient(135deg, #909399 0%, #c0c4cc 100%);
+  background: linear-gradient(135deg, #409eff 0%, #66b1ff 100%);
   border-radius: 12px;
   color: #fff;
 }
@@ -131,7 +146,7 @@ onMounted(() => {
   border-radius: 12px;
   object-fit: cover;
   flex-shrink: 0;
-  background: #f5f7fa;
+  background: #e0f2fe;
 }
 
 .friend-info {

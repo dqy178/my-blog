@@ -1,7 +1,22 @@
+/**
+ * 路由表与路由实例。
+ *
+ * <p>所有页面组件均使用懒加载，按需下载对应 chunk。</p>
+ *
+ * <p>meta 字段约定：</p>
+ * <ul>
+ *   <li>{@code title}：页面标题，会拼接到 document.title</li>
+ *   <li>{@code layout}：布局类型（front / admin / empty），由 App.vue 决定外层容器</li>
+ *   <li>{@code requiresAuth}：是否需要登录，守卫会拦截未登录访问</li>
+ *   <li>{@code roles}：允许访问的角色列表</li>
+ *   <li>{@code icon}：后台侧边栏图标（Element Plus 图标名）</li>
+ *   <li>{@code hidden}：是否在后台菜单中隐藏</li>
+ *   <li>{@code activeMenu}：高亮的菜单路径（用于「编辑」这类详情页）</li>
+ * </ul>
+ *
+ * <p>鉴权逻辑统一实现在 {@link ./guard.ts}，本文件只负责路由表与实例。</p>
+ */
 import { createRouter, createWebHistory, RouteRecordRaw } from 'vue-router'
-import { useUserStore } from '@/stores/user'
-import { useAppStore } from '@/stores/app'
-import NProgress from 'nprogress'
 
 const routes: RouteRecordRaw[] = [
   {
@@ -42,7 +57,7 @@ const routes: RouteRecordRaw[] = [
     path: '/about',
     name: 'About',
     component: () => import('@/views/front/About.vue'),
-    meta: { title: '关于我', layout: 'front' }
+    meta: { title: '关于我', layout: 'front', requiresAuth: true }
   },
   {
     path: '/friends',
@@ -142,9 +157,11 @@ const routes: RouteRecordRaw[] = [
 ]
 
 const router = createRouter({
+  // 使用 HTML5 History 模式，生产环境需由 Nginx 的 try_files 兜底到 index.html
   history: createWebHistory(import.meta.env.BASE_URL),
   routes,
-  scrollBehavior(to, from, savedPosition) {
+  scrollBehavior(_to, _from, savedPosition) {
+    // 浏览器前进/后退时恢复原滚动位置，其他情况回到页面顶部
     if (savedPosition) {
       return savedPosition
     } else {
@@ -153,52 +170,5 @@ const router = createRouter({
   }
 })
 
-export function setupRouterGuard(router: ReturnType<typeof createRouter>) {
-  router.beforeEach(async (to, from, next) => {
-    NProgress.start()
-    const userStore = useUserStore()
-    const appStore = useAppStore()
-
-    document.title = `${to.meta.title || '个人博客'} - 个人博客`
-
-    if (to.meta.requiresAuth) {
-      if (!userStore.isLoggedIn) {
-        userStore.init()
-      }
-
-      if (userStore.isLoggedIn) {
-        try {
-          await userStore.fetchProfile()
-        } catch (e) {
-          userStore.logout()
-          next({ name: 'Login', query: { redirect: to.fullPath } })
-          return
-        }
-      }
-
-      if (!userStore.isLoggedIn) {
-        next({ name: 'Login', query: { redirect: to.fullPath } })
-        return
-      }
-
-      const roles = to.meta.roles as string[] | undefined
-      if (roles && roles.length > 0 && !roles.includes(userStore.userInfo?.role || '')) {
-        next({ name: 'Dashboard' })
-        return
-      }
-    }
-
-    if (to.name === 'Login' && userStore.isLoggedIn) {
-      next({ name: 'Dashboard' })
-      return
-    }
-
-    next()
-  })
-
-  router.afterEach(() => {
-    NProgress.done()
-  })
-}
-
+// 路由守卫统一在 ./guard 中实现（setupRouterGuard），本文件只负责路由表与实例
 export default router

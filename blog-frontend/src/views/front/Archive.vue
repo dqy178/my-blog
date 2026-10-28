@@ -6,7 +6,7 @@
         <p class="page-description">按时间线浏览所有文章</p>
       </div>
 
-      <div class="archive-timeline" v-if="Object.keys(archives).length > 0">
+      <div v-if="Object.keys(archives).length > 0" class="archive-timeline">
         <div
           v-for="(group, year) in archives"
           :key="year"
@@ -37,7 +37,7 @@
         </div>
       </div>
 
-      <div class="empty-state" v-else>
+      <div v-else class="empty-state">
         <component :is="FolderOpened" class="empty-icon" />
         <p>暂无文章</p>
       </div>
@@ -46,13 +46,25 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref, computed } from 'vue'
+/**
+ * 前台归档页。
+ *
+ * <p>把全部已发布文章按发布年份分组，形成时间线式归档。</p>
+ */
+import { logError } from '@/utils/logError'
+import { onMounted, ref } from 'vue'
 import { articleApi, ArticleVO } from '@/api/article'
 import FrontLayout from '@/layouts/FrontLayout.vue'
 import { FolderOpened } from '@element-plus/icons-vue'
 
+/** 年份 → 该年的文章列表 */
 const archives = ref<Record<string, ArticleVO[]>>({})
 
+/**
+ * 加载归档数据并按年份分组。
+ *
+ * <p>后端已按发布时间倒序返回，因此分组后年份自然按从新到旧排列。</p>
+ */
 async function fetchArchive() {
   try {
     const res = await articleApi.getArchive()
@@ -69,10 +81,15 @@ async function fetchArchive() {
 
     archives.value = grouped
   } catch (error) {
-    console.error('获取归档失败:', error)
+    logError('获取归档失败:', error)
   }
 }
 
+/**
+ * 格式化日期为「10月28日」形式。
+ *
+ * @param dateStr 时间字符串
+ */
 function formatDate(dateStr: string) {
   const date = new Date(dateStr)
   return date.toLocaleDateString('zh-CN', {
@@ -81,6 +98,7 @@ function formatDate(dateStr: string) {
   })
 }
 
+/** 初始化加载 */
 onMounted(() => {
   fetchArchive()
 })

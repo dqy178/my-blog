@@ -9,6 +9,9 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
+import org.springframework.web.util.UriUtils;
+
+import java.nio.charset.StandardCharsets;
 import org.springframework.web.servlet.HandlerInterceptor;
 
 @Slf4j
@@ -21,15 +24,70 @@ public class JwtAuthenticationInterceptor implements HandlerInterceptor {
 
     private static final ThreadLocal<Long> USER_ID_THREAD_LOCAL = new ThreadLocal<>();
 
+    /**
+     * 允许匿名访问的接口：没有 token 时放行（游客身份），
+     * 带了 token 则照常校验，以便识别管理员身份。
+     * 用于前台提交评论——游客可评论，管理员登录后评论会被标记为管理员。
+     */
+    private boolean isOptionalAuth(HttpServletRequest request) {
+        if (!"POST".equalsIgnoreCase(request.getMethod())) {
+            return false;
+        }
+        // requestURI 含 context-path(/api)，剥离后再比对
+        String uri = request.getRequestURI();
+        if (uri == null) {
+            return false;
+        }
+        String path = uri.startsWith("/api") ? uri.substring("/api".length()) : uri;
+        return "/front/comments".equals(path);
+    }
+
+    /**
+     * 判定请求是否落在后台管理路径（/admin/**），需要 ROLE_ADMIN。
+     *
+     * <p>必须基于「解码后」的路径判定：Spring 路由匹配用的是解码后的路径，
+     * 而 {@code request.getRequestURI()} 返回的是未解码的原始值。
+     * 若直接用原始 URI 做前缀判断，攻击者可用 %61 之类的百分号编码
+     * 让 {@code /api/%61dmin/articles} 同时满足「路由命中后台」与「前缀不匹配」，
+     * 从而绕过角色校验。因此这里对原始路径和解码后路径都做一次判定。</p>
+     */
+    private boolean isAdminPath(HttpServletRequest request) {
+        String uri = request.getRequestURI();
+        if (uri == null) {
+            return false;
+        }
+        String contextPath = request.getContextPath();
+        String path = uri;
+        if (contextPath != null && !contextPath.isEmpty() && path.startsWith(contextPath)) {
+            path = path.substring(contextPath.length());
+        }
+        if (isAdminPrefix(path)) {
+            return true;
+        }
+        // 原始路径未命中时，用解码后的路径再判一次，防止百分号编码绕过
+        try {
+            return isAdminPrefix(UriUtils.decode(path, StandardCharsets.UTF_8));
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /** 忽略大小写判断 /admin/ 前缀：路由匹配规则变化时也保持安全 */
+    private boolean isAdminPrefix(String path) {
+        return path != null && path.toLowerCase().startsWith("/admin/");
+    }
+
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws Exception {
         if ("OPTIONS".equalsIgnoreCase(request.getMethod())) {
             return true;
         }
-        log.info("[JwtAuth] preHandle entered, uri={} method={}", request.getRequestURI(), request.getMethod());
         String token = getTokenFromRequest(request);
-        log.info("[JwtAuth] uri={} method={} token={}", request.getRequestURI(), request.getMethod(), token);
         if (!StringUtils.hasText(token)) {
+            if (isOptionalAuth(request)) {
+                // 游客提交评论，放行且不设置 ThreadLocal（评论按访客处理）
+                return true;
+            }
             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
             response.setContentType("application/json;charset=UTF-8");
             response.getWriter().write("{\"code\":401,\"message\":\"未登录或token已过期\",\"data\":null}");
@@ -61,9 +119,8 @@ public class JwtAuthenticationInterceptor implements HandlerInterceptor {
                 if (leftMs < java.util.concurrent.TimeUnit.HOURS.toMillis(1)) {
                     redisUtil.set(redisKey, userId.toString(), 24, java.util.concurrent.TimeUnit.HOURS);
                 }
-                // /api/admin/** 路径强制要求 ADMIN 角色
-                String uri = request.getRequestURI();
-                if (uri != null && uri.startsWith("/api/admin/")) {
+                // /admin/** 路径强制要求 ADMIN 角色
+                if (isAdminPath(request)) {
                     String role = claims.get("role", String.class);
                     if (!"ROLE_ADMIN".equals(role)) {
                         response.setStatus(HttpServletResponse.SC_FORBIDDEN);

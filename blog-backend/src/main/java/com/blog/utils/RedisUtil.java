@@ -3,125 +3,111 @@ package com.blog.utils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Component;
-import org.springframework.util.CollectionUtils;
 
-import java.util.List;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
+/**
+ * Redis 操作封装。
+ *
+ * 当前项目实际用到的操作只有：字符串读写删、TTL 写入、key 存在性判断、自增。
+ * 其余集合/哈希/列表操作未经使用，已移除 —— 需要时再按需补充。
+ */
 @Component
 @RequiredArgsConstructor
 public class RedisUtil {
 
     private final RedisTemplate<String, Object> redisTemplate;
 
-    public void set(String key, Object value) {
-        redisTemplate.opsForValue().set(key, value);
-    }
-
+    /**
+     * 写入并设置过期时间。
+     *
+     * @param key      键
+     * @param value    值
+     * @param timeout  过期时长
+     * @param timeUnit 时长单位
+     */
     public void set(String key, Object value, long timeout, TimeUnit timeUnit) {
         redisTemplate.opsForValue().set(key, value, timeout, timeUnit);
     }
 
+    /**
+     * 读取键对应的值。
+     *
+     * @param key 键
+     * @return 值，不存在时为 null
+     */
     public Object get(String key) {
         return redisTemplate.opsForValue().get(key);
     }
 
+    /**
+     * 判断键是否存在。
+     *
+     * <p>用于校验 token 是否仍在 Redis 中（登录态是否有效）。</p>
+     */
     public Boolean hasKey(String key) {
         return redisTemplate.hasKey(key);
     }
 
+    /**
+     * 删除键。
+     *
+     * <p>键不存在时静默返回，不抛异常——缓存失效属于常规操作。</p>
+     */
     public void del(String key) {
         redisTemplate.delete(key);
     }
 
-    public void del(Set<String> keys) {
-        redisTemplate.delete(keys);
-    }
-
+    /**
+     * 自增并返回自增后的值。
+     *
+     * <p>用于浏览量趋势等计数场景，由 Redis 保证原子性。</p>
+     */
     public Long increment(String key) {
         return redisTemplate.opsForValue().increment(key);
     }
 
-    public Long increment(String key, long delta) {
-        return redisTemplate.opsForValue().increment(key, delta);
+    /**
+     * 往 Set 里加入成员。
+     *
+     * <p>用于维护「用户 → 其所有 token」的索引集合。</p>
+     */
+    public void setAdd(String key, String member) {
+        redisTemplate.opsForSet().add(key, member);
     }
 
-    /** 批量取值：未命中返回 null 列表，按 key 顺序对应 */
-    public List<Object> multiGet(java.util.Collection<String> keys) {
-        if (keys == null || keys.isEmpty()) return java.util.Collections.emptyList();
-        return redisTemplate.opsForValue().multiGet(new java.util.LinkedHashSet<>(keys));
+    /**
+     * 设置键的过期时间。
+     *
+     * <p>用于给集合类 key 设置 TTL，避免索引无限增长。</p>
+     */
+    public void expire(String key, long timeout, TimeUnit timeUnit) {
+        redisTemplate.expire(key, timeout, timeUnit);
     }
 
-    public Long decrement(String key) {
-        return redisTemplate.opsForValue().decrement(key);
+    /**
+     * 移除 Set 成员，返回是否真的移除了。
+     *
+     * <p>成员不存在时返回 false（{@code remove} 返回 null 或 0）。</p>
+     */
+    public Boolean setRemove(String key, String member) {
+        Long removed = redisTemplate.opsForSet().remove(key, member);
+        return removed != null && removed > 0;
     }
 
-    public Long decrement(String key, long delta) {
-        return redisTemplate.opsForValue().decrement(key, delta);
-    }
-
-    public void setList(String key, List<Object> list) {
-        redisTemplate.opsForList().rightPushAll(key, list.toArray());
-    }
-
-    public <T> List<T> getList(String key, Class<T> clazz) {
-        List<Object> list = redisTemplate.opsForList().range(key, 0, -1);
-        if (CollectionUtils.isEmpty(list)) {
-            return null;
+    /**
+     * 读取 Set 的全部成员。
+     *
+     * <p>空集合返回空 Set 而非 null，调用方无需判空。</p>
+     */
+    public Set<String> setMembers(String key) {
+        Set<Object> members = redisTemplate.opsForSet().members(key);
+        if (members == null || members.isEmpty()) {
+            return Set.of();
         }
-        return list.stream().map(clazz::cast).toList();
-    }
-
-    public Long getListSize(String key) {
-        return redisTemplate.opsForList().size(key);
-    }
-
-    public Object getListIndex(String key, long index) {
-        return redisTemplate.opsForList().index(key, index);
-    }
-
-    public void setSet(String key, Set<Object> set) {
-        redisTemplate.opsForSet().add(key, set.toArray());
-    }
-
-    public Set<Object> getSet(String key) {
-        return redisTemplate.opsForSet().members(key);
-    }
-
-    public Boolean isSetMember(String key, Object value) {
-        return redisTemplate.opsForSet().isMember(key, value);
-    }
-
-    public Long setAdd(String key, Object... values) {
-        return redisTemplate.opsForSet().add(key, values);
-    }
-
-    public Long setRemove(String key, Object... values) {
-        return redisTemplate.opsForSet().remove(key, values);
-    }
-
-    public Object setPop(String key) {
-        return redisTemplate.opsForSet().pop(key);
-    }
-
-    public void setHash(String key, String hashKey, Object value) {
-        redisTemplate.opsForHash().put(key, hashKey, value);
-    }
-
-    public Object getHash(String key, String hashKey) {
-        return redisTemplate.opsForHash().get(key, hashKey);
-    }
-
-    public void setHashAll(String key, java.util.Map<String, Object> map) {
-        redisTemplate.opsForHash().putAll(key, map);
-    }
-
-    public java.util.Map<Object, Object> getHashAll(String key) {
-        return redisTemplate.opsForHash().entries(key);
-    }
-
-    public Long getHashSize(String key) {
-        return redisTemplate.opsForHash().size(key);
+        return members.stream()
+                .map(String::valueOf)
+                .collect(java.util.stream.Collectors.toSet());
     }
 }

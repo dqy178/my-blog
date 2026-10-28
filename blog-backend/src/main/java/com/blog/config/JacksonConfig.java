@@ -1,5 +1,6 @@
 package com.blog.config;
 
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
@@ -44,6 +45,11 @@ public class JacksonConfig implements WebMvcConfigurer {
         ObjectMapper mapper = new ObjectMapper();
         mapper.registerModule(new JavaTimeModule());
         mapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+        // 忽略请求体中的未知字段。
+        // 这里自定义了 ObjectMapper，会覆盖 Spring Boot 的 Jackson 自动配置，
+        // 因此 application.yml 里的 spring.jackson.deserialization.fail-on-unknown-properties
+        // 不会生效，必须在此显式设置；否则前端多传一个已废弃字段就会直接 500。
+        mapper.disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
         return mapper;
     }
 }

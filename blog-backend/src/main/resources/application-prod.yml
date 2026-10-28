@@ -1,0 +1,76 @@
+# 生产环境配置 (profile: prod)
+#
+# 生效方式:
+#   - Docker Compose: SPRING_PROFILES_ACTIVE=prod (见根目录 docker-compose.yml)
+#   - 手动启动:      java -jar app.jar --spring.profiles.active=prod
+#
+# 属性优先级 (高 -> 低):
+#   系统环境变量 > 本文件 > application.yml
+# 因此 compose 注入的 SPRING_DATASOURCE_URL 等变量会直接覆盖下面的默认值。
+#
+# 容器内默认值按 docker-compose 的服务名 (mysql / redis) 给出,
+# 直接用 jar 启动时可通过环境变量指向任意实例。
+
+spring:
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://mysql:3306/blog_db?useUnicode=true&characterEncoding=utf8&zeroDateTimeBehavior=convertToNull&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true}
+    username: ${SPRING_DATASOURCE_USERNAME:root}
+    password: ${SPRING_DATASOURCE_PASSWORD:123456}
+    type: com.alibaba.druid.pool.DruidDataSource
+    druid:
+      initial-size: 5
+      min-idle: 5
+      max-active: 20
+      max-wait: 60000
+      time-between-eviction-runs-millis: 60000
+      min-evictable-idle-time-millis: 300000
+      validation-query: SELECT 1 FROM DUAL
+      test-while-idle: true
+      test-on-borrow: false
+      test-on-return: false
+      pool-prepared-statements: true
+      max-pool-prepared-statement-per-connection-size: 20
+      filters: stat,wall,log4j2
+      connection-properties: druid.stat.mergeSql=true;druid.stat.slowSqlMillis=5000
+
+  data:
+    redis:
+      # 容器内为 redis 服务名; 直接跑 jar 时用 SPRING_DATA_REDIS_HOST 指向实例
+      host: ${SPRING_DATA_REDIS_HOST:redis}
+      port: ${SPRING_DATA_REDIS_PORT:6379}
+      database: ${SPRING_DATA_REDIS_DATABASE:0}
+      password: ${SPRING_DATA_REDIS_PASSWORD:}
+      timeout: 3000ms
+      lettuce:
+        pool:
+          max-active: 8
+          max-wait: -1
+          max-idle: 8
+          min-idle: 0
+
+mybatis-plus:
+  configuration:
+    # 生产默认不打印 SQL; 需要排查时设 MYBATIS_LOG_IMPL=org.apache.ibatis.logging.stdout.StdOutImpl
+    log-impl: ${MYBATIS_LOG_IMPL:org.apache.ibatis.logging.nologging.NoLoggingImpl}
+
+knife4j:
+  enable: ${KNIFE4J_ENABLE:true}
+
+jwt:
+  # 生产环境必须显式提供 JWT_SECRET，未提供时启动即失败。
+  # 生成方式: openssl rand -base64 48
+  secret: ${JWT_SECRET}
+  expiration: ${JWT_EXPIRATION:86400000}
+  header: Authorization
+  token-head: Bearer
+
+file:
+  upload:
+    path: ${FILE_UPLOAD_PATH:/app/uploads/}
+    domain: ${FILE_UPLOAD_DOMAIN:http://localhost:8080/api}
+
+logging:
+  level:
+    com.blog: ${LOG_LEVEL_APP:info}
+    org.springframework.security: ${LOG_LEVEL_SECURITY:info}

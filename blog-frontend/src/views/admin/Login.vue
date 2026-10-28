@@ -64,6 +64,13 @@
 </template>
 
 <script setup lang="ts">
+/**
+ * 后台登录页。
+ *
+ * <p>登录成功后按 {@code route.query.redirect} 跳回原访问页面，
+ * 没有该参数时默认进入仪表盘。</p>
+ */
+import { logError } from '@/utils/logError'
 import { ref, reactive } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, ElForm } from 'element-plus'
@@ -74,16 +81,21 @@ const router = useRouter()
 const route = useRoute()
 const userStore = useUserStore()
 
+/** 登录表单引用，用于触发校验 */
 const loginFormRef = ref<InstanceType<typeof ElForm>>()
+/** 登录进行中 */
 const loading = ref(false)
+/** 密码是否明文显示 */
 const showPassword = ref(false)
 
+/** 登录表单。rememberMe 默认为开启 */
 const loginForm = reactive({
   username: '',
   password: '',
   rememberMe: true
 })
 
+/** 登录表单校验规则 */
 const loginRules = {
   username: [
     { required: true, message: '请输入用户名', trigger: 'blur' }
@@ -93,6 +105,12 @@ const loginRules = {
   ]
 }
 
+/**
+ * 执行登录。
+ *
+ * <p>登录成功后必须再拉一次 profile 写入 userInfo.role，
+ * 否则路由守卫读不到角色会被踢回 /login。</p>
+ */
 async function handleLogin() {
   try {
     await loginFormRef.value?.validate()
@@ -110,7 +128,7 @@ async function handleLogin() {
     // 必须 await，确保守卫在 userInfo 已更新的前提下执行
     await router.replace(redirect)
   } catch (error) {
-    console.error('登录失败:', error)
+    logError('登录失败:', error)
     const msg = error instanceof Error ? error.message : '登录失败，请重试'
     ElMessage.error(msg)
   } finally {
@@ -134,11 +152,23 @@ async function handleLogin() {
 
 .login-container {
   width: 100%;
-  max-width: 400px;
-  background: #fff;
+  max-width: 520px;
+  background: rgba(255, 255, 255, 0.3);
   border-radius: 16px;
-  padding: 48px 40px;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+  padding: 44px 48px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
+  animation: slideDown 0.6s ease-out;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .login-header {
@@ -147,7 +177,7 @@ async function handleLogin() {
 }
 
 .login-logo {
-  font-size: 48px;
+  font-size: 36px;
   color: #409eff;
   margin-bottom: 16px;
 }
@@ -198,7 +228,7 @@ async function handleLogin() {
 .footer-links {
   display: flex;
   gap: 20px;
-  font-size: 13px;
+  font-size: 16px;
 }
 
 .forget-link {
@@ -214,7 +244,7 @@ async function handleLogin() {
 .back-home-link {
   color: #409eff;
   text-decoration: none;
-  font-size: 13px;
+  font-size: 16px;
 }
 
 .back-home-link:hover {

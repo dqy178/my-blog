@@ -11,5 +11,6 @@ spring:
 
 file:
   upload:
-    path: F:/个人博客/blog-backend/uploads/
-    domain: http://localhost:8080/api
+    # 相对路径，相对后端运行目录（blog-backend/），避免硬编码某台机器的绝对路径
+    path: ${FILE_UPLOAD_PATH:./uploads/}
+    domain: ${FILE_UPLOAD_DOMAIN:http://localhost:8080/api}

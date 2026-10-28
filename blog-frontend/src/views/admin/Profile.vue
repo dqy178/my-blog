@@ -45,7 +45,7 @@
               <el-input v-model="securityForm.answer2" placeholder="请输入答案" />
             </el-form-item>
             <el-form-item>
-              <el-button type="primary" @click="handleUpdateSecurityAnswers" :loading="savingSecurity">保存密保答案</el-button>
+              <el-button type="primary" :loading="savingSecurity" @click="handleUpdateSecurityAnswers">保存密保答案</el-button>
             </el-form-item>
           </el-form>
         </el-card>
@@ -90,7 +90,7 @@
               </div>
             </el-form-item>
             <el-form-item>
-              <el-button type="primary" @click="handleSaveProfile" :loading="savingProfile">保存修改</el-button>
+              <el-button type="primary" :loading="savingProfile" @click="handleSaveProfile">保存修改</el-button>
             </el-form-item>
           </el-form>
         </el-card>
@@ -108,7 +108,7 @@
               <el-input v-model="passwordForm.confirmPassword" type="password" placeholder="请再次输入新密码" show-password />
             </el-form-item>
             <el-form-item>
-              <el-button type="primary" @click="handleChangePassword" :loading="changingPassword">修改密码</el-button>
+              <el-button type="primary" :loading="changingPassword" @click="handleChangePassword">修改密码</el-button>
             </el-form-item>
           </el-form>
         </el-card>
@@ -118,21 +118,36 @@
 </template>
 
 <script setup lang="ts">
+/**
+ * 后台个人中心。
+ *
+ * <p>包含三块：基本资料修改、修改密码、修改密保答案。
+ * 三者各自独立校验与 loading，互不影响。</p>
+ *
+ * <p>改密与改密保后，后端会让该用户的全部会话立即失效，
+ * 因此前端也需同步清除本地登录态并跳回登录页。</p>
+ */
+import { logError } from '@/utils/logError'
 import { ref, reactive, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElForm } from 'element-plus'
-import { Picture, Lock, User } from '@element-plus/icons-vue'
+import { Picture } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
-import { authApi, UserVO } from '@/api/auth'
+import { authApi } from '@/api/auth'
 
 const userStore = useUserStore()
 const router = useRouter()
+/** 当前登录用户信息（与 store 同步） */
 const userInfo = computed(() => userStore.userInfo)
 
+/** 保存资料中 */
 const savingProfile = ref(false)
+/** 修改密码中 */
 const changingPassword = ref(false)
+/** 保存密保中 */
 const savingSecurity = ref(false)
 
+/** 基本资料表单 */
 const profileForm = reactive({
   username: '',
   email: '',
@@ -142,6 +157,7 @@ const profileForm = reactive({
   avatar: ''
 })
 
+/** 基本资料校验规则 */
 const profileRules = {
   email: [
     { required: true, message: '请输入邮箱', trigger: 'blur' },
@@ -153,17 +169,20 @@ const profileRules = {
   ]
 }
 
+/** 修改密码表单 */
 const passwordForm = reactive({
   oldPassword: '',
   newPassword: '',
   confirmPassword: ''
 })
 
+/** 密保答案表单 */
 const securityForm = reactive({
   answer1: '',
   answer2: ''
 })
 
+/** 修改密码校验规则 */
 const passwordRules = {
   oldPassword: [
     { required: true, message: '请输入原密码', trigger: 'blur' }
@@ -178,6 +197,7 @@ const passwordRules = {
   ]
 }
 
+/** 密保答案校验规则 */
 const securityRules = {
   answer1: [
     { required: true, message: '请输入答案1', trigger: 'blur' }
@@ -191,7 +211,16 @@ const profileFormRef = ref<InstanceType<typeof ElForm>>()
 const passwordFormRef = ref<InstanceType<typeof ElForm>>()
 const securityFormRef = ref<InstanceType<typeof ElForm>>()
 
-function validateConfirmPassword(rule: any, value: string, callback: any) {
+/**
+ * 校验两次输入的新密码是否一致。
+ *
+ * <p>自定义 validator 而非简单的 max/min 规则：需要跨字段比较。</p>
+ *
+ * @param _rule    规则对象（未使用）
+ * @param value    当前输入值
+ * @param callback 校验回调，通过时调用无参，出错时传 Error
+ */
+function validateConfirmPassword(_rule: any, value: string, callback: any) {
   if (value !== passwordForm.newPassword) {
     callback(new Error('两次输入的密码不一致'))
   } else {
@@ -199,16 +228,18 @@ function validateConfirmPassword(rule: any, value: string, callback: any) {
   }
 }
 
+/** 加载个人资料并回填表单 */
 async function fetchProfile() {
   try {
     const res = await authApi.getProfile()
     Object.assign(profileForm, res)
     userStore.setUserInfo(res)
   } catch (error) {
-    console.error('获取个人信息失败:', error)
+    logError('获取个人信息失败:', error)
   }
 }
 
+/** 保存基本资料 */
 async function handleSaveProfile() {
   try {
     await profileFormRef.value?.validate()
@@ -216,25 +247,33 @@ async function handleSaveProfile() {
     const res = await authApi.updateProfile(profileForm)
     Object.assign(profileForm, res)
     userStore.setUserInfo(res)
+    // 重新获取完整 profile，确保 articleCount/commentCount/viewCount 等统计字段不会被 updateProfile 返回的精简对象抹掉
+    await fetchProfile()
     ElMessage.success('保存成功')
   } catch (error) {
-    console.error('保存失败:', error)
+    logError('保存失败:', error)
     ElMessage.error('保存失败，请查看控制台')
   } finally {
     savingProfile.value = false
   }
 }
 
+/**
+ * 修改密码。
+ *
+ * <p>成功后后端已让旧 token 失效，这里同步清本地登录态并跳登录页。</p>
+ */
 async function handleChangePassword() {
   try {
     await passwordFormRef.value?.validate()
     changingPassword.value = true
     await authApi.updatePassword(passwordForm.oldPassword, passwordForm.newPassword)
     ElMessage.success('密码修改成功，请重新登录')
-    userStore.logout()
+    // 改密后后端已让旧 token 失效，这里同步清本地登录态
+    await userStore.logout()
     router.push('/login')
   } catch (error) {
-    console.error('修改密码失败:', error)
+    logError('修改密码失败:', error)
     const msg = error instanceof Error ? error.message : '修改密码失败，请查看控制台'
     ElMessage.error(msg)
   } finally {
@@ -242,6 +281,11 @@ async function handleChangePassword() {
   }
 }
 
+/**
+ * 修改密保答案。
+ *
+ * <p>保存后清空输入框：答案已加密落库，不应在页面上继续明文停留。</p>
+ */
 async function handleUpdateSecurityAnswers() {
   try {
     await securityFormRef.value?.validate()
@@ -251,7 +295,7 @@ async function handleUpdateSecurityAnswers() {
     securityForm.answer1 = ''
     securityForm.answer2 = ''
   } catch (error) {
-    console.error('保存密保答案失败:', error)
+    logError('保存密保答案失败:', error)
     const msg = error instanceof Error ? error.message : '保存密保答案失败，请查看控制台'
     ElMessage.error(msg)
   } finally {
@@ -259,21 +303,40 @@ async function handleUpdateSecurityAnswers() {
   }
 }
 
-async function uploadAvatar(options: any) {
-  const file = options.file
-  try {
-    const res = await fileApi.upload(file)
-    profileForm.avatar = res.url
-    options.onSuccess()
-  } catch (error) {
-    options.onError()
-  }
+/**
+ * 头像上传回调（Element Plus el-upload 的 httpRequest）。
+ *
+ * @param options el-upload 传入的选项对象
+ */
+function uploadAvatar(options: any) {
+  // 刻意不用 async：async 函数返回的是 Promise，Element Plus 会在 Promise resolve 后
+  // 自动再调一次 options.onSuccess，和这里手动调用叠加后 on-success 回调会触发两次，
+  // 弹出两个「头像上传成功」。改用 .then() 后 httpRequest 的返回值不是 Promise，
+  // onSuccess/onError 只会被调用一次。
+  fileApi.upload(options.file)
+    .then((res) => {
+      profileForm.avatar = res.url
+      options.onSuccess(res)
+    })
+    .catch((error) => {
+      logError('头像上传失败', error)
+      options.onError()
+      // show-file-list 为 false 时 el-upload 不显示错误，必须自己提示
+      ElMessage.error('头像上传失败，请重试')
+    })
 }
 
+/** 头像上传成功提示 */
 function handleAvatarSuccess() {
   ElMessage.success('头像上传成功')
 }
 
+/**
+ * 格式化最后登录时间。
+ *
+ * @param dateStr 时间字符串
+ * @returns 格式化后的时间；无记录时返回「未登录」
+ */
 function formatDate(dateStr: string | undefined) {
   if (!dateStr) return '未登录'
   const date = new Date(dateStr)
@@ -286,8 +349,8 @@ function formatDate(dateStr: string | undefined) {
 }
 
 import { fileApi } from '@/api/file'
-import { onMounted } from 'vue'
 
+/** 初始化：加载个人资料 */
 onMounted(() => {
   fetchProfile()
 })
@@ -297,6 +360,18 @@ onMounted(() => {
 
 .page-header {
   margin-bottom: 24px;
+}
+
+.profile-card,
+.form-card {
+  background: rgba(255, 255, 255, 0.3);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.profile-card :deep(.el-card__body),
+.form-card :deep(.el-card__body) {
+  background: rgba(255, 255, 255, 0.3);
 }
 
 .profile-page :deep(.el-row) {

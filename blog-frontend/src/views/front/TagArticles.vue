@@ -6,15 +6,16 @@
         <p class="page-description">{{ tagDescription }}</p>
       </div>
 
-      <div class="articles-grid" v-if="articles.length > 0">
+      <div v-if="articles.length > 0" class="articles-grid">
         <ArticleCard
-          v-for="article in articles"
-          :key="article.id"
-          :article="article"
-        />
+            v-for="article in articles"
+            :key="article.id"
+            :article="article"
+            :scope="{ tagId: tagId }"
+          />
       </div>
 
-      <div class="empty-state" v-else>
+      <div v-else class="empty-state">
         <component :is="PriceTag" class="empty-icon" />
         <p>该标签下暂无文章</p>
       </div>
@@ -31,10 +32,16 @@
 </template>
 
 <script setup lang="ts">
+/**
+ * 前台标签文章列表页。
+ *
+ * <p>从标签云进入的文章列表，布局与分类页等其它前台页面保持一致。</p>
+ */
+import { logError } from '@/utils/logError'
 import { onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { articleApi, ArticleVO } from '@/api/article'
-import { tagApi, TagVO } from '@/api/tag'
+import { tagApi } from '@/api/tag'
 import ArticleCard from '@/components/ArticleCard.vue'
 import Pagination from '@/components/Pagination.vue'
 import FrontLayout from '@/layouts/FrontLayout.vue'
@@ -42,15 +49,23 @@ import { PriceTag } from '@element-plus/icons-vue'
 
 const route = useRoute()
 
+/** 当前标签 ID */
 const tagId = ref(Number(route.params.id))
+/** 标签名称 */
 const tagName = ref('')
+/** 标签描述（此处展示该标签下的文章数） */
 const tagDescription = ref('')
 
+/** 当前页文章 */
 const articles = ref<ArticleVO[]>([])
+/** 文章总数 */
 const total = ref(0)
+/** 当前页码 */
 const pageNum = ref(1)
+/** 每页条数 */
 const pageSize = ref(10)
 
+/** 加载标签信息 */
 async function fetchTag() {
   try {
     const res = await tagApi.getTagById(tagId.value)
@@ -59,10 +74,11 @@ async function fetchTag() {
       tagDescription.value = `包含 ${res.articleCount} 篇文章`
     }
   } catch (error) {
-    console.error('获取标签信息失败:', error)
+    logError('获取标签信息失败:', error)
   }
 }
 
+/** 加载该标签下的文章（固定只取已发布） */
 async function fetchArticles() {
   try {
     const res = await articleApi.getArticlePage({
@@ -74,20 +90,37 @@ async function fetchArticles() {
     articles.value = res.list
     total.value = res.total
   } catch (error) {
-    console.error('获取文章列表失败:', error)
+    logError('获取文章列表失败:', error)
   }
 }
 
-function handlePageChange(page: number) {
-  pageNum.value = page
-  window.scrollTo({ top: 0, behavior: 'smooth' })
-}
+/**
+ * 分页变化：更新页码/页大小后重新拉取数据并回到顶部。
+ *
+ * @param page 新页码
+ * @param size 新的每页条数（可选）
+ */
+function handlePageChange(page: number, size?: number) {
+    pageNum.value = page
+    if (size && size !== pageSize.value) {
+      pageSize.value = size
+    }
+    // 必须重新拉取数据：只改 pageNum 不会触发请求，列表会一直停在第一页。
+    fetchArticles()
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
 
+/** 初始化加载 */
 onMounted(() => {
   fetchTag()
   fetchArticles()
 })
 
+/**
+ * 监听路由参数变化。
+ *
+ * <p>切换标签时回到第 1 页并重新加载标签信息与文章列表。</p>
+ */
 watch(() => route.params.id, () => {
   tagId.value = Number(route.params.id)
   pageNum.value = 1
@@ -98,8 +131,12 @@ watch(() => route.params.id, () => {
 
 <style scoped>
 .list-page {
-  max-width: 1200px;
+  /* 与归档页、关于页、友链页、搜索页保持一致：全宽 + 20px 内边距，
+     不再额外限制 1200px，避免在宽屏上与其它前台页面大小不一致。 */
+  width: 100%;
   margin: 0 auto;
+  padding: 0 20px;
+  box-sizing: border-box;
 }
 
 .page-header {

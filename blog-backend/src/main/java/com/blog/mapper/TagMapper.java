@@ -35,4 +35,11 @@ public interface TagMapper extends BaseMapper<Tag> {
 
     @Select("SELECT * FROM tag WHERE id = #{id}")
     Tag selectByIdIncludeDeleted(@Param("id") Long id);
+
+    /**
+     * 文章计数原子增减：UPDATE ... SET article_count = article_count + delta
+     * 用数据库原子操作替代「读-改-写」，避免并发下丢更新。
+     */
+    @Update("UPDATE tag SET article_count = GREATEST(article_count + #{delta}, 0) WHERE id = #{id} AND deleted = 0")
+    int addArticleCount(@Param("id") Long id, @Param("delta") int delta);
 }

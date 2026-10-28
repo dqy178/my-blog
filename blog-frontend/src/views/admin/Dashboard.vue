@@ -63,7 +63,7 @@
               <span>浏览趋势 (近7天)</span>
             </div>
           </template>
-          <div class="chart-container" ref="viewChartRef" style="height: 300px;"></div>
+          <div ref="viewChartRef" class="chart-container" style="height: 300px;"></div>
         </el-card>
       </el-col>
       <el-col :xs="24" :lg="12">
@@ -73,7 +73,7 @@
               <span>文章发布趋势 (近7天)</span>
             </div>
           </template>
-          <div class="chart-container" ref="articleChartRef" style="height: 300px;"></div>
+          <div ref="articleChartRef" class="chart-container" style="height: 300px;"></div>
         </el-card>
       </el-col>
     </el-row>
@@ -144,6 +144,15 @@
 </template>
 
 <script setup lang="ts">
+/**
+ * 后台仪表盘。
+ *
+ * <p>展示统计概览卡片、近 7 天浏览/发布趋势图，以及最新文章与最新评论列表。</p>
+ *
+ * <p>数据每 10 秒轮询一次刷新；图表在数据到达后的 nextTick 中初始化，
+ * 确保 DOM 已挂载。</p>
+ */
+import { logError } from '@/utils/logError'
 import { onMounted, onBeforeUnmount, ref, nextTick } from 'vue'
 import { statsApi, StatsVO } from '@/api/stats'
 import { articleApi, ArticleVO } from '@/api/article'
@@ -159,6 +168,7 @@ import { LineChart } from 'echarts/charts'
 import { TitleComponent, TooltipComponent, GridComponent, LegendComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 
+// 按需注册 ECharts 模块：只引入用到的图表与组件，避免打包体积膨胀
 echarts.use([
   LineChart,
   TitleComponent,
@@ -168,6 +178,7 @@ echarts.use([
   CanvasRenderer
 ])
 
+/** 统计概览数据 */
 const stats = ref<StatsVO>({
   articleCount: 0,
   categoryCount: 0,
@@ -179,13 +190,24 @@ const stats = ref<StatsVO>({
   articleTrend: []
 })
 
+/** 最新文章列表 */
 const latestArticles = ref<ArticleVO[]>([])
+/** 最新评论列表 */
 const latestComments = ref<CommentVO[]>([])
 
+/** 浏览趋势图的 DOM 容器 */
 const viewChartRef = ref<HTMLElement>()
+/** 发布趋势图的 DOM 容器 */
 const articleChartRef = ref<HTMLElement>()
+/** 文章标题缓存：articleId → title */
 const articleTitleCache = new Map<number, string>()
 
+/**
+ * 加载仪表盘数据。
+ *
+ * <p>统计、列表并发请求；评论关联的文章标题再单独批量补查
+ * （Promise.allSettled 保证单个失败不影响整体）。</p>
+ */
 async function fetchData() {
   try {
     const [statsRes, articlesRes, commentsRes] = await Promise.all([
@@ -216,32 +238,46 @@ async function fetchData() {
             comment.articleTitle = article.title
           }
         }
-      } catch (e) {}
+      } catch (e) { /* ignore */ }
     }))
     nextTick(() => initCharts())
   } catch (error) {
-    console.error('获取仪表盘数据失败:', error)
+    logError('获取仪表盘数据失败:', error)
   }
 }
 
+/**
+ * 初始化两张趋势图。
+ *
+ * <p>必须在 DOM 挂载之后调用（fetchData 末尾的 nextTick）。
+ * 同时监听 window 的 resize 事件，让图表跟随窗口尺寸自适应。</p>
+ */
 function initCharts() {
   if (viewChartRef.value) {
     const viewChart = echarts.init(viewChartRef.value)
     viewChart.setOption({
+      tooltip: {
+        trigger: 'axis',
+        axisPointer: { type: 'shadow' },
+formatter: (params: any) => {
+            const p = params[0]
+            return `${p.axisValue}<br/>浏览量：${p.value}`
+          }
+      },
       grid: { left: 40, right: 20, top: 20, bottom: 40 },
       xAxis: {
         type: 'category',
         data: stats.value.viewTrend.map(t => t.date),
-        axisLine: { lineStyle: { color: '#ebeef5' } },
+        axisLine: { lineStyle: { color: '#000' } },
         axisTick: { show: false },
-        axisLabel: { color: '#909399', fontSize: 12 }
+        axisLabel: { color: '#000', fontSize: 12 }
       },
       yAxis: {
         type: 'value',
         minInterval: 1,
-        axisLine: { show: false },
+        axisLine: { lineStyle: { color: '#000' } },
         axisTick: { show: false },
-        axisLabel: { color: '#909399', fontSize: 12 },
+        axisLabel: { color: '#000', fontSize: 12 },
         splitLine: { lineStyle: { color: '#f5f7fa' } }
       },
       series: [{
@@ -267,20 +303,28 @@ function initCharts() {
   if (articleChartRef.value) {
     const articleChart = echarts.init(articleChartRef.value)
     articleChart.setOption({
+      tooltip: {
+        trigger: 'axis',
+        axisPointer: { type: 'shadow' },
+formatter: (params: any) => {
+            const p = params[0]
+            return `${p.axisValue}<br/>文章数：${p.value}`
+          }
+      },
       grid: { left: 40, right: 20, top: 20, bottom: 40 },
       xAxis: {
         type: 'category',
         data: stats.value.articleTrend.map(t => t.date),
-        axisLine: { lineStyle: { color: '#ebeef5' } },
+        axisLine: { lineStyle: { color: '#000' } },
         axisTick: { show: false },
-        axisLabel: { color: '#909399', fontSize: 12 }
+        axisLabel: { color: '#000', fontSize: 12 }
       },
       yAxis: {
         type: 'value',
         minInterval: 1,
-        axisLine: { show: false },
+        axisLine: { lineStyle: { color: '#000' } },
         axisTick: { show: false },
-        axisLabel: { color: '#909399', fontSize: 12 },
+        axisLabel: { color: '#000', fontSize: 12 },
         splitLine: { lineStyle: { color: '#f5f7fa' } }
       },
       series: [{
@@ -304,14 +348,30 @@ function initCharts() {
   }
 }
 
+/**
+ * 文章状态对应的标签类型。
+ *
+ * @param status 文章状态：0=草稿，1=发布
+ */
 function getStatusType(status: number) {
   return status === 1 ? 'success' : 'info'
 }
 
+/**
+ * 评论审核状态对应的标签类型。
+ *
+ * @param status 审核状态：0=待审核，1=通过，2=拒绝
+ */
 function getCommentStatusType(status: number) {
   return status === 1 ? 'success' : status === 0 ? 'warning' : 'danger'
 }
 
+/**
+ * 大数字转中文计数单位。
+ *
+ * @param num 数字
+ * @returns 超过一万时返回「x.x万」，否则返回原值
+ */
 function formatNumber(num: number) {
   if (num >= 10000) {
     return (num / 10000).toFixed(1) + '万'
@@ -319,6 +379,11 @@ function formatNumber(num: number) {
   return num.toString()
 }
 
+/**
+ * 格式化日期为「10月28日 14:30」形式。
+ *
+ * @param dateStr 时间字符串
+ */
 function formatDate(dateStr: string) {
   const date = new Date(dateStr)
   return date.toLocaleDateString('zh-CN', {
@@ -329,8 +394,10 @@ function formatDate(dateStr: string) {
   })
 }
 
+/** 轮询定时器句柄 */
 let pollTimer: ReturnType<typeof setInterval> | null = null
 
+/** 初始化：加载数据并开启 10 秒轮询 */
 onMounted(() => {
   fetchData()
   pollTimer = setInterval(() => {
@@ -338,6 +405,7 @@ onMounted(() => {
   }, 10000)
 })
 
+/** 卸载时清除轮询定时器，避免内存泄漏与无效请求 */
 onBeforeUnmount(() => {
   if (pollTimer) {
     clearInterval(pollTimer)
@@ -369,6 +437,7 @@ onBeforeUnmount(() => {
   border: none;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
   transition: all 0.3s;
+  background: rgba(255, 255, 255, 0.3);
 }
 
 .stat-card:hover {
@@ -417,6 +486,7 @@ onBeforeUnmount(() => {
 .chart-card {
   height: 100%;
   border-radius: 12px;
+  background: rgba(255, 255, 255, 0.3);
 }
 
 .card-header {
@@ -427,7 +497,7 @@ onBeforeUnmount(() => {
 }
 
 .card-header span {
-  font-size: 14px;
+  font-size: 18px;
   font-weight: 600;
   color: #303133;
 }
@@ -445,16 +515,29 @@ onBeforeUnmount(() => {
 .table-card {
   height: 100%;
   border-radius: 12px;
+  background: rgba(255, 255, 255, 0.3);
 }
 
 .table-card :deep(.el-table) {
-  font-size: 13px;
+  font-size: 15px;
+  color: #000;
+  background: rgba(255, 255, 255, 0.3);
+  border-radius: 12px;
+  overflow: hidden;
 }
 
 .table-card :deep(.el-table__header-wrapper th) {
-  background: #fafafa;
-  color: #606266;
+  background: rgba(255, 255, 255, 0.3);
+  color: #000;
   font-weight: 600;
+}
+
+.table-card :deep(.el-table__row) {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.table-card :deep(.el-table__row--striped) {
+  background: rgba(255, 255, 255, 0.2);
 }
 
 .table-link {

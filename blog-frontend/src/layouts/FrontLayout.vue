@@ -12,15 +12,15 @@
           <router-link to="/friends" class="nav-item">友链</router-link>
         </nav>
         <div class="header-actions">
-          <button class="theme-toggle" @click="toggleTheme" :class="{ dark: isDark }" :title="isDark ? '切换到浅色模式' : '切换到暗色模式'">
+          <button class="theme-toggle" :class="{ dark: isDark }" :title="isDark ? '切换到浅色模式' : '切换到暗色模式'" @click="toggleTheme">
             <span class="theme-icon" :class="{ dark: isDark }">
               {{ isDark ? '🌙' : '☀️' }}
             </span>
           </button>
-          <router-link to="/admin" class="nav-item admin-entry" v-if="!userStore.isLoggedIn">
+          <router-link v-if="!userStore.isLoggedIn" to="/admin" class="nav-item admin-entry">
             后台管理
           </router-link>
-          <div class="user-menu" v-if="userStore.isLoggedIn">
+          <div v-if="userStore.isLoggedIn" class="user-menu">
             <el-dropdown trigger="click">
               <span class="dropdown-link">
                 <img :src="userStore.userInfo?.avatar || '/avatar.png'" class="avatar" alt="头像" />
@@ -58,37 +58,41 @@
 </template>
 
 <script setup lang="ts">
+/**
+ * 前台布局：顶部导航 + 内容区 + 页脚。
+ *
+ * <p>提供暗黑模式切换、登录态入口与登出。</p>
+ */
 import { computed } from 'vue'
 import { useUserStore } from '@/stores/user'
 import { useAppStore } from '@/stores/app'
 import {
   ArrowDown,
-  User,
   SwitchButton,
-  Setting,
-  Sun,
-  Moon
+  Setting
 } from '@element-plus/icons-vue'
 
 const userStore = useUserStore()
 const appStore = useAppStore()
 
+/** 当前是否为暗黑模式 */
 const isDark = computed(() => appStore.isDark)
 
+/** 切换暗黑模式 */
 function toggleTheme() {
   appStore.toggleTheme()
 }
 
-function goProfile() {
-  router.push('/admin/profile')
-}
-
+/** 跳转到后台仪表盘 */
 function goAdmin() {
   router.push('/admin/dashboard')
 }
 
-function logout() {
-  userStore.logout()
+/** 登出并返回首页 */
+async function logout() {
+  // 必须 await：logout 是异步的（先通知后端删 token 再清本地），
+  // 不等待的话本地 token 还没清掉，路由守卫仍会认为已登录
+  await userStore.logout()
   router.push('/home')
 }
 
@@ -282,6 +286,10 @@ const router = useRouter()
   text-align: center;
   color: #909399;
   font-size: 14px;
+}
+
+.front-footer .container {
+  justify-content: center;
 }
 
 @media (max-width: 768px) {

@@ -1,6 +1,6 @@
 <template>
-  <article class="article-card" :class="{ 'has-cover': article.cover }" @click="goToArticle" style="cursor: pointer;">
-    <router-link :to="`/article/${article.id}`" class="cover-link" v-if="article.cover" @click.stop>
+  <article class="article-card" :class="{ 'has-cover': article.cover }" style="cursor: pointer;" @click="goToArticle">
+    <router-link v-if="article.cover" :to="articleLink" class="cover-link" @click.stop>
       <img :src="article.cover" :alt="article.title" class="cover-image" />
     </router-link>
     <div class="card-content">
@@ -10,10 +10,10 @@
         </router-link>
         <span class="publish-time">{{ formatDate(article.publishTime || article.createTime) }}</span>
       </div>
-      <router-link :to="`/article/${article.id}`" class="title-link" @click.stop>
+      <router-link :to="articleLink" class="title-link" @click.stop>
         <h2 class="card-title">{{ article.title }}</h2>
       </router-link>
-      <p class="card-summary" v-if="article.summary">{{ article.summary }}</p>
+      <p v-if="article.summary" class="card-summary">{{ article.summary }}</p>
       <div class="card-footer">
         <div class="tags">
           <span
@@ -38,69 +38,114 @@
 </template>
 
 <script setup lang="ts">
+/**
+ * 文章卡片。
+ *
+ * <p>展示封面、分类、发布时间、标题、摘要、标签与统计信息。
+ * 整卡可点击进入文章详情，内部链接使用 @click.stop 阻止冒泡避免重复跳转。</p>
+ *
+ * <p>通过 {@link Props.scope} 传递「作用域上下文」：从标签页或分类页进入时带上，
+ * 文章详情页的上下篇就会在该集合内切换，而不是跳到全站不相干标签的内容。</p>
+ */
 import { computed, ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { commentApi } from '@/api/comment'
+import type { ArticleVO } from '@/api/article'
 
 const routerInst = useRouter()
 
-interface ArticleVO {
-  id: number
-  title: string
-  summary: string
-  cover: string
-  categoryId: number
-  categoryName: string
-  viewCount: number
-  likeCount: number
-  commentCount: number
-  publishTime: string
-  createTime: string
-  tagNames: string[]
-}
-
 interface Props {
+  /** 要展示的文章 */
   article: ArticleVO
+  /**
+   * 上下篇作用域上下文。
+   * 从标签页传入 {@code tagId}，从分类页传入 {@code categoryId}；
+   * 不传则文章详情页按全站范围切换上下篇。
+   */
+  scope?: {
+    /** 限定标签 */
+    tagId?: number
+    /** 限定分类 */
+    categoryId?: number
+  }
 }
 
 const props = defineProps<Props>()
 const article = computed(() => props.article)
+
+/**
+ * 作用域对应的查询参数。
+ *
+ * <p>只有存在作用域时才写入 query，避免 URL 里出现 {@code ?tag=undefined} 这类无效参数。
+ * 参数走 URL 而非路由 state，是为了让刷新页面、复制链接分享都能保持正确的上下文。</p>
+ */
+const scopeQuery = computed<Record<string, number>>(() => {
+  const query: Record<string, number> = {}
+  if (props.scope?.tagId) query.tag = props.scope.tagId
+  if (props.scope?.categoryId) query.category = props.scope.categoryId
+  return query
+})
+
+/** 文章详情页的跳转目标（携带作用域上下文） */
+const articleLink = computed(() => ({
+  path: `/article/${article.value.id}`,
+  query: scopeQuery.value
+}))
+
+/**
+ * 实际评论数（含回复）。
+ *
+ * <p>后端返回的 article.commentCount 只统计已通过审核的评论，
+ * 而卡片上希望显示的是文章详情页看到的完整数量（含未通过的回复）。
+ * 因此这里异步拉取评论树并递归统计；请求失败时回退到后端返回的 commentCount。</p>
+ */
 const realCommentCount = ref<number | null>(null)
+
+// 递归统计评论数（含回复）
+function countComments(list: any[]): number {
+  let count = 0
+  for (const c of list) {
+    count++
+    if (c.children && c.children.length) count += countComments(c.children)
+  }
+  return count
+}
 
 onMounted(async () => {
   try {
     const comments = await commentApi.getCommentsByArticleId(article.value.id)
-    let count = 0
-    function countAll(list: any[]) {
-      for (const c of list) {
-        count++
-        if (c.children && c.children.length) countAll(c.children)
-      }
-    }
-    countAll(comments)
-    realCommentCount.value = count
+    realCommentCount.value = countComments(comments)
   } catch {
     // ignore
   }
 })
 
+/**
+ * 跳转到文章详情页。
+ *
+ * <p>整卡点击与内部链接走同一个目标，保证作用域上下文不会丢失。</p>
+ */
 function goToArticle() {
-  routerInst.push(`/article/${article.value.id}`)
+  routerInst.push(articleLink.value)
 }
 
+/**
+ * 格式化时间为「yyyy-MM-dd HH:mm:ss」。
+ *
+ * @param dateStr 时间字符串
+ * @returns 格式化后的时间；入参为空时返回空串
+ */
 function formatDate(dateStr: string) {
-  const date = new Date(dateStr)
-  return date.toLocaleDateString('zh-CN', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric'
-  })
+  if (!dateStr) return ''
+  const d = new Date(dateStr)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
 }
 </script>
 
 <style scoped>
 .article-card {
-  background: #fff;
+  background: rgba(255, 255, 255, 0.5);
   border-radius: 12px;
   overflow: hidden;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);

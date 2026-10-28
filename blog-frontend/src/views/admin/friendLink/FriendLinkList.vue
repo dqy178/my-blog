@@ -14,8 +14,8 @@
 
     <el-card class="table-card" shadow="never">
       <el-table
-        :data="friendLinks"
         v-loading="loading"
+        :data="friendLinks"
         border
         stripe
         row-key="id"
@@ -30,7 +30,7 @@
               <img :src="scope.row.avatar || '/friend-avatar.png'" :alt="scope.row.name" class="link-avatar" />
               <div>
                 <p class="link-name">{{ scope.row.name }}</p>
-                <p class="link-url" @click="copyUrl(scope.row.url)" title="点击复制">{{ scope.row.url }}</p>
+                <p class="link-url" title="点击复制" @click="copyUrl(scope.row.url)">{{ scope.row.url }}</p>
               </div>
             </div>
           </template>
@@ -43,7 +43,7 @@
               v-model="scope.row.status"
               :active-value="1"
               :inactive-value="0"
-              @change="val => handleStatusChange(scope.row.id, val)"
+              @change="(val: any) => handleStatusChange(scope.row.id, val)"
             />
           </template>
         </el-table-column>
@@ -101,30 +101,51 @@
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="handleSubmit" :loading="submitting">确定</el-button>
+        <el-button type="primary" :loading="submitting" @click="handleSubmit">确定</el-button>
       </template>
     </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
+/**
+ * 后台友链管理页。
+ *
+ * <p>提供友链的新增、编辑、单个与批量删除，以及显示/隐藏开关。
+ * 前台只展示 status=1 的友链。</p>
+ */
+import { logError } from '@/utils/logError'
 import { ref, reactive } from 'vue'
 import { ElMessage, ElMessageBox, ElForm } from 'element-plus'
-import { Plus, Edit, Delete, CopyDocument, Picture } from '@element-plus/icons-vue'
+import { Plus, Edit, Delete, Picture } from '@element-plus/icons-vue'
 import { friendLinkApi, FriendLinkVO, FriendLinkDTO } from '@/api/friendLink'
 import { fileApi } from '@/api/file'
 
+/** 表格加载中 */
 const loading = ref(false)
+/** 友链列表（含已隐藏） */
 const friendLinks = ref<FriendLinkVO[]>([])
+/** 新增/编辑对话框可见性 */
 const dialogVisible = ref(false)
+/** 提交中 */
 const submitting = ref(false)
+/** 正在编辑的友链 ID。为 null 表示新增 */
 const editId = ref<number | null>(null)
+/** 选中的友链 ID */
 const selectedIds = ref<number[]>([])
 
+/**
+ * 记录选中的友链 ID。
+ *
+ * @param selection 当前选中的友链
+ */
 function handleSelectionChange(selection: FriendLinkVO[]) {
   selectedIds.value = selection.map(item => item.id)
 }
 
+/**
+ * 批量删除友链（带二次确认）。
+ */
 async function handleBatchDelete() {
   try {
     await ElMessageBox.confirm(`确定要删除选中的 ${selectedIds.value.length} 个友链吗？`, '确认批量删除', {
@@ -137,10 +158,14 @@ async function handleBatchDelete() {
     selectedIds.value = []
     fetchFriendLinks()
   } catch (error) {
-    console.error('批量删除失败:', error)
+    // 用户取消删除时不算错误
+    if (error !== 'cancel' && error !== 'close') {
+      logError('批量删除失败:', error)
+    }
   }
 }
 
+/** 新增/编辑表单数据。默认显示 */
 const form = reactive<FriendLinkDTO>({
   id: undefined,
   name: '',
@@ -151,6 +176,7 @@ const form = reactive<FriendLinkDTO>({
   status: 1
 })
 
+/** 表单校验规则 */
 const rules = {
   name: [
     { required: true, message: '请输入友链名称', trigger: 'blur' },
@@ -167,24 +193,31 @@ const rules = {
 
 const formRef = ref<InstanceType<typeof ElForm>>()
 
+/** 加载友链列表 */
 async function fetchFriendLinks() {
   loading.value = true
   try {
     const res = await friendLinkApi.getAllFriendLinks()
     friendLinks.value = res
   } catch (error) {
-    console.error('获取友链列表失败:', error)
+    logError('获取友链列表失败:', error)
   } finally {
     loading.value = false
   }
 }
 
+/** 打开新增对话框 */
 function handleAdd() {
   editId.value = null
   resetForm()
   dialogVisible.value = true
 }
 
+/**
+ * 打开编辑对话框并回填数据。
+ *
+ * @param row 被编辑的友链
+ */
 function handleEdit(row: FriendLinkVO) {
   editId.value = row.id
   form.id = row.id
@@ -197,6 +230,7 @@ function handleEdit(row: FriendLinkVO) {
   dialogVisible.value = true
 }
 
+/** 重置表单并清除上一次的校验提示 */
 function resetForm() {
   form.id = undefined
   form.name = ''
@@ -208,6 +242,14 @@ function resetForm() {
   formRef.value?.clearValidate()
 }
 
+/**
+ * 上传友链头像。
+ *
+ * <p>兼容两种入参形态：el-upload 的 upload 钩子传入的是 { file } 对象，
+ * 而自定义调用可能直接传 File。</p>
+ *
+ * @param file 待上传的文件或 el-upload 的选项对象
+ */
 async function handleAvatarUpload(file: any) {
   try {
     const res = await fileApi.upload(file.file || file)
@@ -218,6 +260,7 @@ async function handleAvatarUpload(file: any) {
   }
 }
 
+/** 提交表单（按 editId 区分新增/更新） */
 async function handleSubmit() {
   try {
     await formRef.value?.validate()
@@ -233,27 +276,46 @@ async function handleSubmit() {
     dialogVisible.value = false
     fetchFriendLinks()
   } catch (error) {
-    console.error('提交失败:', error)
+    logError('提交失败:', error)
   } finally {
     submitting.value = false
   }
 }
 
+/**
+ * 对话框关闭时同步隐藏状态。
+ *
+ * @param done el-dialog 提供的关闭回调
+ */
 function handleClose(done: () => void) {
   dialogVisible.value = false
   done()
 }
 
+/**
+ * 切换友链的显示/隐藏状态。
+ *
+ * <p>失败时重新加载列表：开关的视觉状态已被用户改过，不回滚会与服务端不一致。</p>
+ *
+ * @param id  友链 ID
+ * @param val 目标显示状态
+ */
 async function handleStatusChange(id: number, val: boolean) {
   try {
     await friendLinkApi.updateFriendLinkStatus(id, val ? 1 : 0)
     ElMessage.success(val ? '已显示' : '已隐藏')
   } catch (error) {
     fetchFriendLinks()
-    console.error('状态修改失败:', error)
+    logError('状态修改失败:', error)
   }
 }
 
+/**
+ * 删除单个友链（带二次确认）。
+ *
+ * @param id   友链 ID
+ * @param name 友链名称，用于确认文案
+ */
 async function handleDelete(id: number, name: string) {
   try {
     await ElMessageBox.confirm(`确定要删除友链“${name}”吗？`, '确认删除', {
@@ -265,10 +327,15 @@ async function handleDelete(id: number, name: string) {
     ElMessage.success('删除成功')
     fetchFriendLinks()
   } catch (error) {
-    console.error('删除失败:', error)
+    logError('删除失败:', error)
   }
 }
 
+/**
+ * 复制友链地址到剪贴板。
+ *
+ * @param url 友链地址
+ */
 function copyUrl(url: string) {
   navigator.clipboard.writeText(url).then(() => {
     ElMessage.success('链接已复制')
@@ -277,12 +344,18 @@ function copyUrl(url: string) {
   })
 }
 
+/**
+ * 格式化时间为本地时间字符串。
+ *
+ * @param dateStr 时间字符串
+ */
 function formatDate(dateStr: string) {
   const date = new Date(dateStr)
   return date.toLocaleString('zh-CN')
 }
 
 import { onMounted } from 'vue'
+/** 初始化加载 */
 onMounted(() => {
   fetchFriendLinks()
 })
@@ -301,14 +374,24 @@ onMounted(() => {
   margin-bottom: 24px;
 }
 
+.table-card {
+  height: 100%;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.3);
+}
+
 .table-card :deep(.el-table) {
   font-size: 13px;
+  background: rgba(255, 255, 255, 0.3);
+  border-radius: 12px;
+  overflow: hidden;
 }
 
 .table-card :deep(.el-table__header-wrapper th) {
-  background: #fafafa;
-  color: #606266;
+  background: rgba(255, 255, 255, 0.3);
+  color: #000;
   font-weight: 600;
+  font-size: 18px;
 }
 
 .link-info {

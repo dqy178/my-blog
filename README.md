@@ -51,9 +51,12 @@
 │   │   ├── common/               # 通用类 (Result, 分页, 异常)
 │   │   ├── interceptor/          # 拦截器
 │   │   └── utils/                # 工具类
+│   ├── src/test/java/            # 单元测试
 │   └── src/main/resources/
-│       ├── application.yml       # 配置文件
-│       └── db/init.sql           # 数据库初始化脚本
+│       ├── application.yml       # 主配置
+│       ├── application-dev.yml   # 本地开发配置
+│       ├── application-prod.yml  # 生产环境配置（Docker 部署时激活）
+│       └── db/blog_db.sql        # 数据库初始化脚本（7 张表 + 种子数据）
 │
 ├── blog-frontend/                # 前端项目
 │   ├── src/
@@ -74,8 +77,11 @@
 │   │   ├── stores/               # Pinia 状态管理
 │   │   ├── utils/                # 工具函数
 │   │   └── styles/               # 样式文件
+│   ├── src/vite-env.d.ts         # Vite 客户端类型声明
+│   ├── .eslintrc.cjs             # ESLint 配置
 │   └── public/                   # 静态资源
 │
+├── .github/workflows/ci.yml      # CI：后端测试 + 前端类型检查/lint/构建
 ├── nginx/                        # Nginx 配置
 ├── docker-compose.yml            # Docker 编排
 └── README.md                     # 项目文档
@@ -85,14 +91,14 @@
 
 ### 前台 (读者端)
 - 🏠 **首页**: 文章列表、轮播推荐、最新文章、热门文章、分类标签云
-- 📖 **文章详情**: Markdown 渲染、代码高亮、目录导航、阅读量统计、上一篇/下一篇
+- 📖 **文章详情**: Markdown 渲染、代码高亮、目录导航、阅读量统计、上一篇/下一篇（从标签/分类页进入时在该集合内切换）
 - 🏷️ **分类/标签**: 按分类/标签筛选文章，支持分页
 - 📅 **归档**: 按年份时间线展示所有文章
-- 👤 **关于我**: 个人介绍、技能栈、博客统计
+- 👤 **关于我**: 个人介绍、技能栈、博客统计（需登录访问）
 - 🔗 **友链**: 友情链接展示、申请指引
 - 🔍 **搜索**: 关键词搜索、热门搜索推荐
 - 🌙 **暗黑模式**: 支持手动切换/跟随系统
-- 💬 **评论系统**: 支持二级回复、游客评论、邮箱通知(待集成)
+- 💬 **评论系统**: 支持二级回复、游客评论、算术验证码 + Redis IP 限流、邮箱通知(待集成)
 
 ### 后台 (管理端)
 - 🔐 **JWT 认证**: 登录/登出、Token 刷新、记住我
@@ -118,9 +124,11 @@
 cd blog-backend
 
 # 1. 创建数据库并执行初始化脚本
-mysql -u root -p < src/main/resources/db/init.sql
+mysql -u root -p < src/main/resources/db/blog_db.sql
 
-# 2. 修改 application.yml 中的数据库/Redis 配置
+# 2. 数据库/Redis 连接可用环境变量覆盖（默认 dev profile 连 localhost）
+#    SPRING_DATASOURCE_URL / SPRING_DATASOURCE_USERNAME / SPRING_DATASOURCE_PASSWORD
+#    SPRING_DATA_REDIS_HOST / SPRING_DATA_REDIS_PORT
 
 # 3. 启动
 mvn spring-boot:run
@@ -140,6 +148,24 @@ npm run dev
 # 访问 http://localhost:3000
 ```
 
+### 代码质量检查
+```bash
+# 前端（均在 blog-frontend 目录）
+npm run type-check   # vue-tsc 类型检查，0 错误为通过
+npm run lint:check   # ESLint 检查
+npm run lint         # ESLint 检查并自动修复
+npm run build        # 构建
+
+# 后端（在 blog-backend 目录）
+mvn test             # 单元测试
+mvn package          # 打包（默认执行测试）
+
+# Docker 构建时也会跑测试，测试失败则镜像构建失败
+docker compose build backend
+# 需要跳过测试的快速重建：
+docker compose build --build-arg SKIP_TESTS=true backend
+```
+
 ### Docker 一键启动 (推荐)
 ```bash
 # 根目录下
@@ -149,7 +175,7 @@ docker-compose up -d
 # 前端: http://localhost:3000
 # 后端 API: http://localhost:8080/api
 # API 文档: http://localhost:8080/api/doc.html
-# 数据库: localhost:3306
+# 数据库: localhost:3307   (宿主机 3306 已被本机 MySQL 5.7 占用，容器内仍为 3306)
 # Redis: localhost:6379
 ```
 
@@ -177,22 +203,26 @@ docker-compose up -d
 - 限制上传文件大小
 
 ### 4. 环境变量配置
-```yaml
-# 后端 application-prod.yml
-spring:
-  datasource:
-    url: jdbc:mysql://${MYSQL_HOST}:3306/blog_db
-    username: ${MYSQL_USER}
-    password: ${MYSQL_PASSWORD}
-  redis:
-    host: ${REDIS_HOST}
-    password: ${REDIS_PASSWORD}
-jwt:
-  secret: ${JWT_SECRET}  # 必须修改为强随机字符串
-file:
-  upload:
-    domain: https://your-domain.com
-```
+
+`application-prod.yml` 中所有生产配置均支持环境变量覆盖（优先级：**环境变量 > application-prod.yml > application.yml**）。
+`docker-compose.yml` 已注入下列默认环境变量，通常无需额外配置：
+
+| 环境变量 | 默认值 | 说明 |
+|---|---|---|
+| `SPRING_PROFILES_ACTIVE` | `prod` | 激活 prod profile；本地默认 `dev` |
+| `SPRING_DATASOURCE_URL` | `jdbc:mysql://mysql:3306/blog_db?...` | 数据库连接串 |
+| `SPRING_DATASOURCE_USERNAME` / `SPRING_DATASOURCE_PASSWORD` | `root` / `123456` | 数据库账号 |
+| `SPRING_DATA_REDIS_HOST` / `SPRING_DATA_REDIS_PORT` | `redis` / `6379` | Redis 地址（容器内为服务名 `redis`） |
+| `SPRING_DATA_REDIS_PASSWORD` | 空 | Redis 密码 |
+| `FILE_UPLOAD_PATH` | `/app/uploads/` | 上传目录（容器内） |
+| `FILE_UPLOAD_DOMAIN` | `http://localhost:8080/api` | 上传文件访问域名前缀 |
+| `JWT_SECRET` | 见 `application.yml` | **生产必须覆盖**，至少 32 字节 |
+| `JWT_EXPIRATION` | `86400000`（24h） | Token 有效期（毫秒） |
+| `MYBATIS_LOG_IMPL` | `NoLoggingImpl` | 生产默认不打印 SQL；排查时设为 `org.apache.ibatis.logging.stdout.StdOutImpl` |
+| `KNIFE4J_ENABLE` | `true` | 是否开启 API 文档 |
+| `LOG_LEVEL_APP` / `LOG_LEVEL_SECURITY` | `info` | 日志级别 |
+
+> 未设置 `SPRING_PROFILES_ACTIVE` 时默认使用 `dev` profile（本地开发，连 `localhost` 的 MySQL/Redis）。
 
 ## 🔧 关键设计
 
@@ -206,25 +236,35 @@ file:
 ```
 
 ### JWT 认证流程
-1. 登录 → 后端签发 Token (HS512)
+1. 登录 → 后端签发 Token（基于 JJWT，签名密钥需 ≥32 字节，生产环境强制覆盖 `JWT_SECRET`）
 2. 前端存 localStorage + Pinia
 3. 请求拦截器携带 `Authorization: Bearer xxx`
 4. 后端拦截器校验、解析 userId 存 ThreadLocal
 5. Redis 存 Token 实现踢下线/续期
 
 ### 文章浏览量优化
-- Redis 计数 (`article:view:{id}`)
-- 定时任务/阈值触发同步到 MySQL
-- 详情页合并显示: `DB计数 + Redis计数`
+- 数据库原子自增 (`article.view_count`)，SQL 层直接读取排序，避免只存 Redis 导致 ORDER BY 失效
+- Redis 仅用于每日趋势统计 (`view:daily:{date}`)，仪表盘浏览趋势图数据来源
 
 ### 评论防刷
-- 图形验证码 (待集成)
-- Redis + 注解限流
+- 算术验证码（一次性，5 分钟过期，由 CaptchaUtil 生成与校验）
+- Redis + IP 频率限制（同一 IP 10 分钟内最多 5 条游客评论）
 - 敏感词过滤 (待集成)
 
 ### XSS 防护
 - 前端 DOMPurify 过滤 Markdown 渲染 HTML
 - 后端输入校验 + 输出转义
+
+## 🗺️ 规划中 / 毕设扩展
+
+### RAG 智能问答（已规划）
+
+基于本博客已有文章内容，构建“基于自有知识库的智能问答”功能，适合作为毕设扩展方向：
+
+- **索引构建**：将 Markdown 文章按段落分块，通过 Embedding 模型向量化，存入向量数据库（如 Milvus、pgvector）
+- **检索增强**：用户提问时先检索相关文档片段，作为上下文传给 LLM 生成回答，并在回答中标注出处（文章标题 + 段落）
+- **前端接入**：在文章详情页或独立对话页面增加聊天入口，与现有评论区并存
+- **注意事项**：控制 LLM API 调用成本（答辩演示建议用本地模型或免费额度）、处理幻觉（通过检索源限制回答范围）、数据隐私（文章内容上传第三方模型前需评估）
 
 ## 📚 API 文档
 

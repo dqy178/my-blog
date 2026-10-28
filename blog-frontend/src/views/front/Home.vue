@@ -14,14 +14,14 @@
           <h2 class="section-title">最新文章</h2>
           <router-link to="/archive" class="view-more">查看更多</router-link>
         </div>
-        <div class="articles-grid" v-if="articles.length > 0">
+        <div v-if="articles.length > 0" class="articles-grid">
           <ArticleCard
             v-for="article in articles"
             :key="article.id"
             :article="article"
           />
         </div>
-        <div class="empty-state" v-else>
+        <div v-else class="empty-state">
           <p>暂无文章</p>
         </div>
       </section>
@@ -81,42 +81,30 @@
 </template>
 
 <script setup lang="ts">
+/**
+ * 前台首页。
+ *
+ * <p>聚合展示最新文章、热门文章、分类导航与标签云。四份数据并发请求，
+ * 任一失败只记录日志，不影响其余板块渲染。</p>
+ */
+import { logError } from '@/utils/logError'
 import { onMounted, ref } from 'vue'
-import { articleApi } from '@/api/article'
-import { categoryApi } from '@/api/category'
-import { tagApi } from '@/api/tag'
+import { articleApi, ArticleVO } from '@/api/article'
+import { categoryApi, CategoryVO } from '@/api/category'
+import { tagApi, TagVO } from '@/api/tag'
 import ArticleCard from '@/components/ArticleCard.vue'
 import FrontLayout from '@/layouts/FrontLayout.vue'
 
-interface ArticleVO {
-  id: number
-  title: string
-  summary: string
-  cover: string
-  categoryName: string
-  viewCount: number
-  createTime: string
-  tagNames: string[]
-}
-
-interface CategoryVO {
-  id: number
-  name: string
-  articleCount: number
-}
-
-interface TagVO {
-  id: number
-  name: string
-  color: string
-  articleCount: number
-}
-
+/** 最新文章列表 */
 const articles = ref<ArticleVO[]>([])
+/** 分类列表 */
 const categories = ref<CategoryVO[]>([])
+/** 标签云 */
 const tags = ref<TagVO[]>([])
+/** 热门文章列表 */
 const hotArticles = ref<ArticleVO[]>([])
 
+/** 并发加载首页所需的四份数据 */
 async function fetchData() {
   try {
     const [articlesRes, categoriesRes, tagsRes, hotRes] = await Promise.all([
@@ -130,10 +118,11 @@ async function fetchData() {
     tags.value = tagsRes
     hotArticles.value = hotRes
   } catch (error) {
-    console.error('获取首页数据失败:', error)
+    logError('获取首页数据失败:', error)
   }
 }
 
+/** 初始化加载 */
 onMounted(() => {
   fetchData()
 })
@@ -199,14 +188,15 @@ onMounted(() => {
 }
 
 .view-more {
-  color: #409eff;
-  font-size: 14px;
+  color: #000;
+  font-size: 18px;
+  font-weight: 700;
   text-decoration: none;
   transition: color 0.3s;
 }
 
 .view-more:hover {
-  color: #66b1ff;
+  color: #000;
 }
 
 .articles-grid {
@@ -226,7 +216,7 @@ onMounted(() => {
 }
 
 .sidebar-card {
-  background: #fff;
+  background: rgba(255, 255, 255, 0.5);
   border-radius: 12px;
   padding: 24px;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);

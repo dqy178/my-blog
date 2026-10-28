@@ -3,7 +3,7 @@
     <el-aside :width="isCollapse ? '64px' : '200px'" class="admin-sidebar">
       <div class="sidebar-header" @click="toggleMenu">
         <component :is="Monitor" class="logo-icon" />
-        <span class="logo-text" v-if="!isCollapse">个人博客</span>
+        <span v-if="!isCollapse" class="logo-text">个人博客</span>
       </div>
       <transition name="menu-slide">
         <el-menu
@@ -16,21 +16,21 @@
         class="sidebar-menu"
       >
         <template v-for="route in filteredRoutes" :key="route.path">
-          <el-menu-item :index="route.path" v-if="!route.children || route.children.length === 0">
-            <component :is="getIcon(route.meta?.icon)" class="menu-icon" />
+          <el-menu-item v-if="!route.children || route.children.length === 0" :index="adminPath(route.path)">
+            <component :is="getIcon(route.meta?.icon as string | undefined)" class="menu-icon" />
             <template #title>
               <span>{{ route.meta?.title }}</span>
             </template>
           </el-menu-item>
-          <el-sub-menu v-else :index="route.path">
+          <el-sub-menu v-else :index="adminPath(route.path)">
             <template #title>
-              <component :is="getIcon(route.meta?.icon)" class="menu-icon" />
+<component :is="getIcon(route.meta?.icon as string | undefined)" class="menu-icon" />
               <span>{{ route.meta?.title }}</span>
             </template>
             <el-menu-item
               v-for="child in route.children"
               :key="child.path"
-              :index="child.path"
+              :index="adminPath(child.path)"
             >
               {{ child.meta?.title }}
             </el-menu-item>
@@ -43,10 +43,9 @@
       <el-header class="admin-header">
         <div class="header-left">
           <el-button
-            type="text"
             link
-            @click="toggleCollapse"
             class="collapse-trigger"
+            @click="toggleCollapse"
           >
             <component :is="isCollapse ? Expand : Fold" />
           </el-button>
@@ -86,7 +85,13 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, watch, ref } from 'vue'
+/**
+ * 后台布局：左侧菜单 + 顶部工具栏 + 内容区。
+ *
+ * <p>菜单项从路由表动态生成（过滤掉 hidden 的详情页），
+ * 因此新增后台页面只需改路由，无需再改菜单。</p>
+ */
+import { computed, ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import { useAppStore } from '@/stores/app'
@@ -101,24 +106,32 @@ import {
   Document,
   Folder,
   PriceTag,
-  ChatDotRound,
-  Link,
-  Menu
-} from '@element-plus/icons-vue'
+ChatDotRound,
+    Link
+  } from '@element-plus/icons-vue'
 
 const router = useRouter()
 const route = useRoute()
 const userStore = useUserStore()
 const appStore = useAppStore()
 
+/** 侧边栏是否折叠 */
 const isCollapse = computed(() => appStore.sidebarOpened === false)
 
+/** 用户下拉菜单展开状态 */
 const menuOpen = ref(true)
 
+/** 展开/收起用户下拉菜单 */
 function toggleMenu() {
   menuOpen.value = !menuOpen.value
 }
 
+/**
+ * 从路由表生成侧边栏菜单项。
+ *
+ * <p>取 {@code /admin} 父路由的 children，过滤掉 {@code meta.hidden} 的详情页
+ * （如「新建文章」「编辑文章」），这些页面通过父级菜单进入，不单独显示。</p>
+ */
 const filteredRoutes = computed(() => {
   const adminRoutes = router.getRoutes().filter(r => r.path === '/admin' && r.children && r.children.length > 0)
   const adminRoute = adminRoutes[adminRoutes.length - 1] || adminRoutes[0]
@@ -126,16 +139,45 @@ const filteredRoutes = computed(() => {
   return children.filter(r => !r.meta?.hidden)
 })
 
+/**
+ * 当前高亮的菜单项。
+ *
+ * <p>优先使用路由 meta 指定的激活菜单，例如「新建文章」「编辑文章」高亮「文章管理」。</p>
+ */
 const activeMenu = computed(() => {
+  // 优先使用路由 meta 指定的激活菜单，例如「新建文章」「编辑文章」高亮「文章管理」
+  const metaActive = route.meta.activeMenu as string | undefined
+  if (metaActive) {
+    return metaActive
+  }
   const matched = route.matched.find(m => m.path.startsWith('/admin') && m.path !== '/admin')
   return matched?.path || '/admin/dashboard'
 })
 
+/**
+ * 把 admin 子路由记录的 path 转成绝对路径。
+ *
+ * 注意：router.getRoutes() 返回的子路由记录里，path 是相对路径（如 'tags'、'articles'），
+ * 不是 '/admin/tags'。el-menu 的 router 模式会把 index 直接交给 router.push，
+ * 相对路径会按当前地址解析：在 /admin/articles/create 下 push('tags') 会变成
+ * /admin/articles/tags，该路径不存在，于是落到 404 路由。
+ */
+function adminPath(path: string) {
+  return path.startsWith('/') ? path : `/admin/${path}`
+}
+
+/** 当前页面标题（取自路由 meta） */
 const pageTitle = computed(() => {
   const matched = route.matched.find(m => m.meta.title)
   return (matched?.meta?.title as string) || '仪表盘'
 })
 
+/**
+ * 根据路由 meta 中的图标名取 Element Plus 图标组件。
+ *
+ * @param iconName 图标名
+ * @returns 图标组件；未匹配时返回通用的 'Menu'
+ */
 function getIcon(iconName?: string) {
   if (!iconName) return 'Menu'
   const icons: Record<string, any> = {
@@ -150,20 +192,21 @@ function getIcon(iconName?: string) {
   return icons[iconName] || 'Menu'
 }
 
+/** 折叠/展开侧边栏 */
 function toggleCollapse() {
   appStore.toggleSidebar()
 }
 
-function goProfile() {
-  router.push('/admin/profile')
-}
-
+/** 在新标签页打开前台站点 */
 function goFront() {
   window.open('/', '_blank')
 }
 
-function logout() {
-  userStore.logout()
+/** 登出并跳回登录页 */
+async function logout() {
+  // 必须 await：logout 是异步的（先通知后端删 token 再清本地），
+  // 不等待的话本地 token 还没清掉，路由守卫仍会认为已登录
+  await userStore.logout()
   router.push('/login')
 }
 </script>
@@ -191,7 +234,7 @@ function logout() {
 
 .admin-sidebar {
   height: 100%;
-  background: #fff;
+  background: rgba(255, 255, 255, 0.3);
   border-right: 1px solid #ebeef5;
   display: flex;
   flex-direction: column;
@@ -233,12 +276,16 @@ function logout() {
   overflow: hidden;
 }
 
-.sidebar-menu /deep/ .el-menu-item:first-child {
+.sidebar-menu :deep(.el-menu-item:first-child) {
   margin-top: 30px;
 }
 
-  .sidebar-menu /deep/ .el-menu-item,
-  .sidebar-menu /deep/ .el-sub-menu__title {
+.sidebar-menu :deep(.el-menu) {
+  background: rgba(255, 255, 255, 0.3) !important;
+}
+
+  .sidebar-menu :deep(.el-menu-item),
+  .sidebar-menu :deep(.el-sub-menu__title) {
     height: 44px;
     line-height: 44px;
     border-radius: 8px;
@@ -248,21 +295,22 @@ function logout() {
     align-items: center;
     transition: all 0.3s;
     font-size: 20px;
+    background: rgba(255, 255, 255, 0.3) !important;
   }
 
-.sidebar-menu /deep/ .el-menu-item:hover,
-.sidebar-menu /deep/ .el-sub-menu__title:hover {
-  background: #f0f9ff;
+.sidebar-menu :deep(.el-menu-item:hover),
+.sidebar-menu :deep(.el-sub-menu__title:hover) {
+  background: rgba(240, 249, 255, 0.6) !important;
 }
 
-.sidebar-menu /deep/ .el-menu-item.is-active,
-.sidebar-menu /deep/ .el-sub-menu.is-active > .el-sub-menu__title {
-  background: #e6f7ff;
+.sidebar-menu :deep(.el-menu-item.is-active),
+.sidebar-menu :deep(.el-sub-menu.is-active > .el-sub-menu__title) {
+  background: rgba(230, 247, 255, 0.8) !important;
   color: #409eff;
 }
 
-.sidebar-menu /deep/ .el-menu-item.is-active .menu-icon,
-.sidebar-menu /deep/ .el-sub-menu.is-active > .el-sub-menu__title .menu-icon {
+.sidebar-menu :deep(.el-menu-item.is-active .menu-icon),
+.sidebar-menu :deep(.el-sub-menu.is-active > .el-sub-menu__title .menu-icon) {
   color: #409eff;
 }
 
@@ -310,7 +358,7 @@ function logout() {
   align-items: center;
   justify-content: space-between;
   padding: 0 24px;
-  background: #fff;
+  background: rgba(255, 255, 255, 0.3);
   border-bottom: 1px solid #ebeef5;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
 }

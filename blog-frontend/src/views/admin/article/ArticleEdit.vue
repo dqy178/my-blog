@@ -3,10 +3,10 @@
     <div class="page-header">
       <div class="header-actions">
         <el-button @click="goBack">返回列表</el-button>
-        <el-button type="primary" @click="handleSave(0)" :loading="saving">
+        <el-button type="primary" :loading="saving" @click="handleSave(0)">
           保存草稿
         </el-button>
-        <el-button type="success" @click="handleSave(1)" :loading="saving">
+        <el-button type="success" :loading="saving" @click="handleSave(1)">
           发布文章
         </el-button>
       </div>
@@ -64,21 +64,22 @@
               <div v-if="articleForm.cover" class="cover-preview">
                 <img :src="articleForm.cover" alt="封面预览" />
                 <el-button
-                  type="text"
+                  link
                   size="small"
-                  @click.stop="articleForm.cover = ''"
                   class="remove-cover"
+                  @click.stop="articleForm.cover = ''"
                 >
                   <component :is="Delete" /> 移除
                 </el-button>
               </div>
-              <div v-else class="cover-placeholder" @click="$refs.coverInput.click()">
+              <!-- el-upload 的根节点自身就会触发文件选择框，
+                   这里不能再挂 openCoverPicker，否则一次点击会弹出两个文件对话框 -->
+              <div v-else class="cover-placeholder">
                 <component :is="Picture" class="upload-icon" />
                 <p>点击上传封面图</p>
                 <span>建议尺寸: 800x450px, 不超过2MB</span>
               </div>
             </el-upload>
-            <input ref="coverInput" type="file" accept="image/*" style="display: none" @change="onCoverChange" />
           </div>
         </el-form-item>
 
@@ -89,7 +90,7 @@
         <el-form-item label="文章内容" prop="content">
           <MarkdownEditor
             v-model="articleForm.content"
-            @image-upload="handleImageUpload"
+            :image-upload="handleImageUpload"
           />
         </el-form-item>
       </el-form>
@@ -98,16 +99,23 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, watch, computed } from 'vue'
-import { useRouter, useRoute } from 'vue-router'
-import { ElMessage } from 'element-plus'
+/**
+ * 文章编辑页（新建与编辑复用同一组件）。
+ *
+ * <p>是否处于编辑态由路由参数 {@code route.params.id} 判定：没有 id 是新建，
+ * 有 id 是编辑。两个入口的差异全部由该 computed 驱动，不需要拆成两个组件。</p>
+ *
+ * <p>离开页面时若表单有未保存改动会弹出确认框，避免正在写的文章被无声丢弃。</p>
+ */
+import { logError } from '@/utils/logError'
+import { ref, reactive, onMounted, computed, watch } from 'vue'
+import { useRouter, useRoute, onBeforeRouteLeave } from 'vue-router'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import {
-  Plus,
-  ArrowLeft,
   Delete,
   Picture
 } from '@element-plus/icons-vue'
-import { articleApi, ArticleDTO, ArticleVO } from '@/api/article'
+import { articleApi, ArticleDTO } from '@/api/article'
 import { categoryApi, CategoryVO } from '@/api/category'
 import { tagApi, TagVO } from '@/api/tag'
 import { fileApi } from '@/api/file'
@@ -116,13 +124,21 @@ import MarkdownEditor from '@/components/MarkdownEditor.vue'
 const router = useRouter()
 const route = useRoute()
 
+/** 是否为编辑模式（有路由 id 即为编辑） */
 const isEdit = computed(() => !!route.params.id)
+/** 当前编辑的文章 ID */
 const articleId = computed(() => Number(route.params.id || 0))
 
+/** 保存中标记 */
 const saving = ref(false)
+/** 分类下拉选项 */
 const categories = ref<CategoryVO[]>([])
+/** 标签下拉选项 */
 const tags = ref<TagVO[]>([])
+// 表单是否有未保存的改动，用于离开页面时提醒
+let dirty = false
 
+/** 表单数据 */
 const articleForm = reactive<ArticleDTO>({
   id: undefined,
   title: '',
@@ -136,6 +152,7 @@ const articleForm = reactive<ArticleDTO>({
   tagIds: []
 })
 
+/** 表单校验规则 */
 const articleRules = {
   title: [
     { required: true, message: '请输入文章标题', trigger: 'blur' },
@@ -154,24 +171,32 @@ const articleRules = {
 
 const articleFormRef = ref()
 
+/** 加载分类下拉选项 */
 async function fetchCategories() {
   try {
     const res = await categoryApi.getAllCategories()
     categories.value = res
   } catch (error) {
-    console.error('获取分类失败:', error)
+    logError('获取分类失败:', error)
   }
 }
 
+/** 加载标签下拉选项 */
 async function fetchTags() {
   try {
     const res = await tagApi.getAllTags()
     tags.value = res
   } catch (error) {
-    console.error('获取标签失败:', error)
+    logError('获取标签失败:', error)
   }
 }
 
+/**
+ * 加载待编辑文章并回填表单。
+ *
+ * <p>新建模式下直接返回，不发请求。标签需要从 {@code tags} 对象列表转成 ID 数组，
+ * 因为表单提交的是 tagIds。</p>
+ */
 async function fetchArticle() {
   if (!isEdit.value) return
   try {
@@ -191,10 +216,15 @@ async function fetchArticle() {
       })
     }
   } catch (error) {
-    console.error('获取文章详情失败:', error)
+    logError('获取文章详情失败:', error)
   }
 }
 
+/**
+ * 保存文章。
+ *
+ * @param status 目标状态：0=存为草稿，1=发布
+ */
 async function handleSave(status: number) {
   try {
     await articleFormRef.value?.validate()
@@ -208,57 +238,131 @@ async function handleSave(status: number) {
       await articleApi.createArticle(articleForm)
       ElMessage.success(status === 1 ? '发布成功' : '保存草稿成功')
     }
+    dirty = false
     router.push('/admin/articles')
   } catch (error) {
-    console.error('保存失败:', error)
+    logError('保存失败:', error)
   } finally {
     saving.value = false
   }
 }
 
+/** 返回文章列表页 */
 function goBack() {
   router.push('/admin/articles')
 }
 
-async function uploadCover(options: any) {
-  const file = options.file
-  try {
-    const res = await fileApi.upload(file)
-    articleForm.cover = res.url
-    options.onSuccess()
-  } catch (error) {
-    options.onError()
-  }
-}
-
-function onCoverChange(event: Event) {
-  const input = event.target as HTMLInputElement
-  if (input.files && input.files[0]) {
-    const file = input.files[0]
-    const formData = new FormData()
-    formData.append('file', file)
-    fileApi.upload(file).then(res => {
+/**
+ * 封面上传回调（Element Plus el-upload 的 httpRequest）。
+ *
+ * @param options el-upload 传入的选项对象
+ */
+function uploadCover(options: any) {
+  // 不用 async：async 返回 Promise 时 Element Plus 会在 resolve 后自动再调一次
+  // options.onSuccess，与手动调用叠加会让 on-success 回调触发两次。
+  // .then() 形式下 httpRequest 返回值不是 Promise，回调只会被调用一次。
+  fileApi.upload(options.file)
+    .then((res) => {
       articleForm.cover = res.url
-    }).catch(() => {
-      ElMessage.error('上传失败')
+      options.onSuccess(res)
     })
-    input.value = ''
-  }
+    .catch((error) => {
+      logError('封面上传失败', error)
+      options.onError()
+      // show-file-list 为 false 时 el-upload 不会显示任何错误，必须自己提示
+      ElMessage.error('封面上传失败，请重试')
+    })
 }
 
+/**
+ * Markdown 编辑器的图片上传回调。
+ *
+ * <p>返回 Promise 是编辑器契约的一部分：编辑器拿到 URL 后插入 Markdown 图片语法。
+ * 失败时抛出异常，由编辑器捕获并提示。</p>
+ *
+ * @param file 待上传的图片
+ * @returns 图片的可访问 URL
+ */
 async function handleImageUpload(file: File) {
   try {
     const res = await fileApi.upload(file)
     return res.url
   } catch (error) {
+    ElMessage.error('图片上传失败，请重试')
     throw new Error('图片上传失败')
   }
 }
 
+/** 初始化：加载分类、标签与文章详情 */
 onMounted(() => {
   fetchCategories()
   fetchTags()
   fetchArticle()
+})
+
+// 路由参数变化时重新加载。
+// /admin/articles/edit/:id 与 /admin/articles/create 复用同一个组件，
+// vue-router 在「同组件不同参数」时会复用实例而不重新 mount，
+// 若不监听参数变化，表单里仍是上一篇的内容，保存时会写进另一篇文章。
+watch(
+  () => route.params.id,
+  async (newId, oldId) => {
+    if (newId === oldId) return
+    resetForm()
+    await fetchArticle()
+  }
+)
+
+/**
+ * 重置表单为初始状态。
+ *
+ * <p>切换编辑目标时调用，清掉上一篇的内容与 dirty 标记。</p>
+ */
+function resetForm() {
+  Object.assign(articleForm, {
+    id: undefined,
+    title: '',
+    summary: '',
+    content: '',
+    cover: '',
+    categoryId: undefined,
+    status: 0,
+    isTop: 0,
+    allowComment: 1,
+    tagIds: []
+  })
+}
+
+/**
+ * 离开页面前提醒：正在写的文章不能被无声丢弃。
+ *
+ * <p>监听标题/摘要/正文/封面四个字段——它们覆盖了作者真正编辑的内容，
+ * 改动任意一项就标记为 dirty。</p>
+ */
+watch(
+  () => [articleForm.title, articleForm.summary, articleForm.content, articleForm.cover],
+  () => {
+    dirty = true
+  }
+)
+
+/**
+ * 路由离开守卫：有未保存改动时弹出确认框。
+ *
+ * <p>用户选择「离开」则放行（next()），选择「继续编辑」则拦截（next(false)）。</p>
+ */
+onBeforeRouteLeave((_to, _from, next) => {
+  if (!dirty) {
+    next()
+    return
+  }
+  ElMessageBox.confirm('当前文章尚未保存，确定要离开吗？', '提示', {
+    confirmButtonText: '离开',
+    cancelButtonText: '继续编辑',
+    type: 'warning'
+  })
+    .then(() => next())
+    .catch(() => next(false))
 })
 </script>
 

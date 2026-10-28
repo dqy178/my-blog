@@ -1,7 +1,7 @@
 <template>
   <FrontLayout>
     <div class="article-detail-page">
-      <article class="article-container" v-if="article">
+      <article v-if="article" class="article-container">
         <header class="article-header">
           <div class="article-meta">
             <router-link :to="`/category/${article.categoryId}`" class="category-tag">
@@ -15,8 +15,8 @@
             <h1 class="article-title">{{ article.title }}</h1>
           </div>
           
-          <span class="field-label" v-if="article.summary">文章摘要</span>
-          <div class="summary-box" v-if="article.summary">
+          <span v-if="article.summary" class="field-label">文章摘要</span>
+          <div v-if="article.summary" class="summary-box">
             <p>{{ article.summary }}</p>
           </div>
           
@@ -25,7 +25,7 @@
             <div class="article-content" v-html="renderedContent"></div>
           </div>
           
-          <div class="article-tags" v-if="article.tags && article.tags.length">
+          <div v-if="article.tags && article.tags.length" class="article-tags">
             <router-link
               v-for="tag in article.tags"
               :key="tag.id"
@@ -57,10 +57,10 @@
           </div>
         </footer>
 
-        <div class="article-nav" v-if="prevArticle || nextArticle">
+        <div v-if="prevArticle || nextArticle" class="article-nav">
           <router-link
             v-if="prevArticle"
-            :to="`/article/${prevArticle.id}`"
+            :to="navLink(prevArticle)"
             class="nav-item prev"
           >
             <el-icon class="nav-icon"><ArrowLeft /></el-icon>
@@ -71,7 +71,7 @@
           </router-link>
           <router-link
             v-if="nextArticle"
-            :to="`/article/${nextArticle.id}`"
+            :to="navLink(nextArticle)"
             class="nav-item next"
           >
             <div class="nav-info">
@@ -85,7 +85,7 @@
         <CommentSection :article-id="article.id" @count-update="onCommentCountUpdate" />
       </article>
 
-      <div class="loading" v-else>
+      <div v-else class="loading">
         <el-skeleton :rows="5" animated />
       </div>
     </div>
@@ -93,17 +93,23 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
+/**
+ * 前台文章详情页。
+ *
+ * <p>展示文章正文（Markdown 渲染）、标签、统计信息、上一篇/下一篇导航，
+ * 以及评论区。路由参数变化时会重新拉取数据并重新计一次浏览量。</p>
+ */
+import { logError } from '@/utils/logError'
+import { onMounted, ref, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import markdownIt from 'markdown-it'
 import hljs from 'highlight.js'
 import 'highlight.js/styles/github.css'
-import DOMPurify from 'dompurify'
+import { safeHtml } from '@/utils/safeHtml'
 import {
   View,
   ChatDotRound,
-  StarFilled,
   Link,
   ArrowLeft,
   ArrowRight
@@ -111,30 +117,64 @@ import {
 import { articleApi } from '@/api/article'
 import FrontLayout from '@/layouts/FrontLayout.vue'
 import CommentSection from '@/components/CommentSection.vue'
-
-interface ArticleVO {
-  id: number
-  title: string
-  summary: string
-  content: string
-  cover: string
-  categoryId: number
-  categoryName: string
-  viewCount: number
-  likeCount: number
-  commentCount: number
-  publishTime: string
-  tags: Array<{ id: number; name: string; color: string }>
-}
+import type { ArticleVO } from '@/api/article'
 
 const route = useRoute()
 const router = useRouter()
 
+/** 当前文章 */
 const article = ref<ArticleVO | null>(null)
+/** 上一篇（列表中更靠前的一篇） */
 const prevArticle = ref<ArticleVO | null>(null)
+/** 下一篇（列表中更靠后的一篇） */
 const nextArticle = ref<ArticleVO | null>(null)
+/** 净化后的正文 HTML */
 const renderedContent = ref('')
 
+/**
+ * 当前的作用域上下文（从 URL 查询参数读取）。
+ *
+ * <p>标签页进入时 URL 形如 {@code /article/12?tag=3}，分类页形如
+ * {@code /article/12?category=5}。作用域写在 URL 里而不是路由 state，
+ * 是为了让刷新页面、复制链接分享都能保持正确的上下篇范围。</p>
+ */
+const navScope = computed(() => {
+  const tagId = route.query.tag ? Number(route.query.tag) : undefined
+  const categoryId = route.query.category ? Number(route.query.category) : undefined
+  if (!tagId && !categoryId) return undefined
+  return { tagId, categoryId }
+})
+
+/**
+ * 取得当前作用域，供请求参数使用。
+ *
+ * <p>无作用域时返回 undefined，请求便不带这两个参数，后端按全站范围处理。</p>
+ */
+function currentScope() {
+  return navScope.value
+}
+
+/**
+ * 上下篇链接的目标地址。
+ *
+ * <p>必须带上作用域，否则在标签页内连点「下一篇」会退回全站顺序，
+ * 上下文就断了。</p>
+ */
+function navLink(target: ArticleVO) {
+  return {
+    path: `/article/${target.id}`,
+    query: navScope.value
+      ? { ...(navScope.value.tagId ? { tag: navScope.value.tagId } : {}),
+          ...(navScope.value.categoryId ? { category: navScope.value.categoryId } : {}) }
+      : {}
+  }
+}
+
+/**
+ * Markdown 渲染器。
+ *
+ * <p>{@code html: true} 允许正文内嵌 HTML，因此渲染结果必须再经 safeHtml 净化。</p>
+ */
 const md = markdownIt({
   html: true,
   linkify: true,
@@ -143,37 +183,56 @@ const md = markdownIt({
     if (lang && hljs.getLanguage(lang)) {
       try {
         return hljs.highlight(str, { language: lang, ignoreIllegals: true }).value
-      } catch (__) {}
+      } catch (__) { /* ignore */ }
     }
     return ''
   }
 })
 
+/**
+ * 拉取文章详情与上下篇。
+ *
+ * <p>三个请求并发执行；上下篇的失败（没有上一篇/下一篇属正常情况）被单独 catch，
+ * 不应因此让整页跳 404。</p>
+ *
+ * <p>上下篇会带上 {@link currentScope} 作用域：从标签页/分类页进入时，
+ * 切换范围限定在对应集合内；直接输 URL 或从首页进入时为空，即全站范围。</p>
+ */
 async function fetchArticle() {
   try {
     const id = Number(route.params.id)
+    const scope = currentScope()
     const [articleRes, prevRes, nextRes] = await Promise.all([
       articleApi.getArticleDetail(id),
-      articleApi.getPrevArticle(id).catch(() => null),
-      articleApi.getNextArticle(id).catch(() => null)
+      articleApi.getPrevArticle(id, scope).catch(() => null),
+      articleApi.getNextArticle(id, scope).catch(() => null)
     ])
     article.value = articleRes
     prevArticle.value = prevRes || null
     nextArticle.value = nextRes || null
     renderContent()
   } catch (error) {
-    console.error('获取文章详情失败:', error)
+    logError('获取文章详情失败:', error)
     router.push('/404')
   }
 }
 
+/**
+ * 渲染并净化正文 HTML。
+ */
 function renderContent() {
   if (!article.value) return
   const html = md.render(article.value.content)
-  const cleanHtml = DOMPurify.sanitize(html)
+  const cleanHtml = safeHtml(html)
   renderedContent.value = cleanHtml
 }
 
+/**
+ * 格式化日期为中文长格式。
+ *
+ * @param dateStr 时间字符串
+ * @returns 格式化后的日期；入参为空或非法时返回空串
+ */
 function formatDate(dateStr: string) {
   if (!dateStr) return ''
   const date = new Date(dateStr)
@@ -186,12 +245,20 @@ function formatDate(dateStr: string) {
   })
 }
 
+/**
+ * 接收评论区回传的最新评论数，同步到页头统计。
+ *
+ * @param count 当前评论数（含回复）
+ */
 function onCommentCountUpdate(count: number) {
   if (article.value) {
     article.value.commentCount = count
   }
 }
 
+/**
+ * 复制当前页面链接到剪贴板。
+ */
 function copyLink() {
   navigator.clipboard.writeText(window.location.href).then(() => {
     ElMessage.success('链接已复制到剪贴板')
@@ -218,6 +285,9 @@ onMounted(async () => {
   }
 })
 
+/**
+ * 路由参数变化（点击上下篇切换）时重新加载内容，并按同样的去重规则计浏览量。
+ */
 watch(() => route.params.id, async (newId) => {
   if (newId) {
     await fetchArticle()
@@ -246,7 +316,7 @@ watch(() => route.params.id, async (newId) => {
 }
 
 .article-container {
-  background: #fff;
+  background: rgba(255, 255, 255, 0.3);
   border: 1px solid #ebeef5;
   border-radius: 12px;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
@@ -300,7 +370,7 @@ watch(() => route.params.id, async (newId) => {
   border-radius: 8px;
   padding: 12px 40px;
   margin: 8px 0;
-  background: #fafafa;
+  background: rgba(255, 255, 255, 0.3);
   font-size: 18px;
 }
 .article-title {
@@ -458,7 +528,7 @@ watch(() => route.params.id, async (newId) => {
   justify-content: space-between;
   padding: 24px 40px;
   border-top: 1px solid #ebeef5;
-  background: #fafafa;
+  background: rgba(255, 255, 255, 0.3);
 }
 
 .article-stats {
@@ -491,7 +561,7 @@ watch(() => route.params.id, async (newId) => {
   align-items: center;
   gap: 30px;
   padding: 16px;
-  background: #fafafa;
+  background: rgba(255, 255, 255, 0.3);
   border-radius: 8px;
   text-decoration: none;
   color: #303133;
