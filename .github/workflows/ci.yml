@@ -11,7 +11,11 @@ jobs:
   backend:
     name: 后端构建与测试
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: blog-backend
 
+        
     steps:
       - uses: actions/checkout@v4
 
