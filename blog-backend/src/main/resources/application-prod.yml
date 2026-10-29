@@ -70,6 +70,30 @@ file:
     path: ${FILE_UPLOAD_PATH:/app/uploads/}
     domain: ${FILE_UPLOAD_DOMAIN:http://localhost:8080/api}
 
+# 站内知识问答（RAG）
+#
+# 默认 provider=mock：不调用外部大模型，用本地模拟实现，
+# 适合答辩现场无网络 / 无 API Key 时演示全链路。
+# 切换真实模型：RAG_PROVIDER=openai + RAG_API_KEY=<key>（DeepSeek 等 OpenAI 兼容服务）
+rag:
+  enabled: ${RAG_ENABLED:true}
+  provider: ${RAG_PROVIDER:mock}
+  base-url: ${RAG_BASE_URL:https://api.deepseek.com/v1}
+  model: ${RAG_MODEL:deepseek-chat}
+  api-key: ${RAG_API_KEY:}
+  timeout-ms: ${RAG_TIMEOUT_MS:60000}
+  temperature: ${RAG_TEMPERATURE:0.2}
+  max-tokens: ${RAG_MAX_TOKENS:1024}
+  top-k: ${RAG_TOP_K:5}
+  candidate-multiplier: ${RAG_CANDIDATE_MULTIPLIER:4}
+  context-max-chars: ${RAG_CONTEXT_MAX_CHARS:4000}
+  chunk-max-chars: ${RAG_CHUNK_MAX_CHARS:500}
+  chunk-min-chars: ${RAG_CHUNK_MIN_CHARS:80}
+  chunk-overlap-chars: ${RAG_CHUNK_OVERLAP_CHARS:100}
+  rate-limit-per-minute: ${RAG_RATE_LIMIT_PER_MINUTE:20}
+  daily-limit: ${RAG_DAILY_LIMIT:500}
+  relevance-ratio: ${RAG_RELEVANCE_RATIO:0.5}
+
 logging:
   level:
     com.blog: ${LOG_LEVEL_APP:info}

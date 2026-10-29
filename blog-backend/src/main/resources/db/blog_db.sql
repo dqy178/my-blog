@@ -196,9 +196,27 @@ CREATE TABLE `user`  (
   UNIQUE INDEX `uk_email`(`email`) USING BTREE
 ) ENGINE = InnoDB AUTO_INCREMENT = 2 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '用户表' ROW_FORMAT = Dynamic;
 
--- ----------------------------
--- Records of user
--- ----------------------------
-INSERT INTO `user` VALUES (1, 'admin', '$2a$10$X4us5m4e5CmlpKV7eL6TNO2M2dvAhP2mVZEpLNirFGcwbKAnMdU2e', '博主', 'admin@example.com', NULL, NULL, NULL, 'ROLE_ADMIN', 1, '2026-10-26 09:11:41', '2026-10-26 09:06:44', '2026-10-26 09:06:44', NULL, NULL, 0);
-
-SET FOREIGN_KEY_CHECKS = 1;
+  -- ----------------------------
+  -- Records of user
+  -- ----------------------------
+  INSERT INTO `user` VALUES (1, 'admin', '$2a$10$X4us5m4e5CmlpKV7eL6TNO2M2dvAhP2mVZEpLNirFGcwbKAnMdU2e', '博主', 'admin@example.com', NULL, NULL, NULL, 'ROLE_ADMIN', 1, '2026-10-26 09:11:41', '2026-10-26 09:06:44', '2026-10-26 09:06:44', NULL, NULL, 0);
+  
+  -- ----------------------------
+  -- Table structure for article_chunk
+  -- ----------------------------
+  DROP TABLE IF EXISTS `article_chunk`;
+  CREATE TABLE `article_chunk` (
+    `id` bigint(20) NOT NULL AUTO_INCREMENT COMMENT '主键',
+    `article_id` bigint(20) NOT NULL COMMENT '文章ID',
+    `chunk_index` int(11) NOT NULL DEFAULT 0 COMMENT '块序号（同一文章内从0递增）',
+    `heading_path` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL DEFAULT NULL COMMENT '标题路径，如 基础 > 鉴权 > JWT',
+    `content` mediumtext CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL COMMENT '块内容（Markdown 片段）',
+    `char_count` int(11) NULL DEFAULT 0 COMMENT '块字符数',
+    `create_time` datetime(0) NULL DEFAULT NULL COMMENT '创建时间',
+    `update_time` datetime(0) NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP(0) COMMENT '更新时间',
+    PRIMARY KEY (`id`) USING BTREE,
+    UNIQUE INDEX `uk_article_chunk`(`article_id`, `chunk_index`) USING BTREE,
+    INDEX `idx_article_id`(`article_id`) USING BTREE
+  ) ENGINE = InnoDB AUTO_INCREMENT = 1 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '文章检索块（RAG 知识库）' ROW_FORMAT = Dynamic;
+  
+  SET FOREIGN_KEY_CHECKS = 1;

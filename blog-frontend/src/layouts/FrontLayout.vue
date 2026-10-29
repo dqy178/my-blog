@@ -10,6 +10,7 @@
           <router-link to="/archive" class="nav-item">归档</router-link>
           <router-link to="/about" class="nav-item">关于</router-link>
           <router-link to="/friends" class="nav-item">友链</router-link>
+          <router-link to="/ask" class="nav-item">AI 问答</router-link>
         </nav>
         <div class="header-actions">
           <button class="theme-toggle" :class="{ dark: isDark }" :title="isDark ? '切换到浅色模式' : '切换到暗色模式'" @click="toggleTheme">
@@ -274,8 +275,25 @@ const router = useRouter()
 }
 
 .front-main {
-  flex: 1;
-  padding: 32px 0;
+    flex: 1;
+    /* 关键：flex item 的 min-height 默认是 auto，它不肯收缩到比内容更矮，
+       于是 main 撑到内容高度，叠加 header/footer 后整页超出视口（多出滚动条）。
+       显式设为 0 后，main 才会真正占满「视口 - header - footer」的高度。 */
+    min-height: 0;
+    padding: 32px 0;
+    /* 内容区独立滚动：header 与 footer 始终固定可见 */
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+}
+
+/* 内容容器撑满 main 的可用高度，
+   使内部需要按高度布局的页面（如 AI 问答页）能正确占满并内部滚动 */
+.front-main > .container {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
 }
 
 .front-footer {

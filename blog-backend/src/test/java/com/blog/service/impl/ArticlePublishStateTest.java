@@ -18,6 +18,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -57,6 +58,9 @@ class ArticlePublishStateTest {
     private TagService tagService;
     @Mock
     private RedisUtil redisUtil;
+    /** 事件发布器：文章保存后用于触发检索索引重建 */
+    @Mock
+    private ApplicationEventPublisher eventPublisher;
 
     @InjectMocks
     private ArticleServiceImpl articleService;

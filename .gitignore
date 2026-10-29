@@ -3,13 +3,17 @@ target/
 out/
 build/
 *.log
+logs/                      # 新增：日志目录
 blog-backend/uploads/
+uploads/                   # 新增：根目录启动时的上传目录
 
 # 前端
 blog-frontend/node_modules/
 blog-frontend/dist/
 node_modules/
 dist/
+blog-frontend/.env.local           # 新增
+blog-frontend/.env.*.local         # 新增
 
 # Vite 依赖优化临时产物
 vite.config.ts.timestamp-*.mjs
@@ -21,8 +25,10 @@ nginx/html/
 # 本地导出的数据库快照（安装脚本见 blog-backend/src/main/resources/db/blog_db.sql）
 /blog_db.sql
 
-# 本地环境变量（含 JWT_SECRET，禁止提交）
+# 本地环境变量（含 JWT_SECRET / LLM_API_KEY，禁止提交）
 .env
+.env.*
+!.env.example              # 新增：示例文件要提交
 
 # IDE
 .idea/

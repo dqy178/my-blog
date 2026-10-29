@@ -66,6 +66,13 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '友链', layout: 'front' }
   },
   {
+    // 站内知识问答（RAG）：检索博客文章后基于检索结果作答
+    path: '/ask',
+    name: 'Ask',
+    component: () => import('@/views/front/Ask.vue'),
+    meta: { title: '站内问答', layout: 'front' }
+  },
+  {
     path: '/search',
     name: 'Search',
     component: () => import('@/views/front/Search.vue'),

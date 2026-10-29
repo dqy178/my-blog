@@ -23,6 +23,7 @@ import com.blog.vo.TagVO;
 import com.blog.common.PageResult;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.BeanUtils;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
@@ -62,6 +63,15 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
     private final CategoryService categoryService;
     private final TagService tagService;
     private final RedisUtil redisUtil;
+
+    /**
+     * 事件发布器：用于在文章内容变化后触发检索索引重建。
+     *
+     * <p>刻意用「发事件」而不是直接调索引服务：一是索引重建要异步执行，
+     * 不能阻塞文章保存；二是要用「事务提交后」语义，避免事务回滚后索引里
+     * 残留未发布的草稿内容。</p>
+     */
+    private final ApplicationEventPublisher eventPublisher;
 
     /**
      * 分页查询文章。
@@ -211,6 +221,8 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
         if (published) {
             updateCategoryCount(articleDTO.getCategoryId(), 1);
         }
+        // 触发检索索引重建（事务提交后异步执行）
+        publishIndexEvent(article.getId());
         return convertToVO(article);
     }
 
@@ -262,6 +274,8 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
 
         syncTags(id, oldTagIds, effectiveTagIds, oldPublished, newPublished);
         syncCategoryCount(oldCategoryId, articleDTO.getCategoryId(), oldPublished, newPublished);
+        // 内容可能变化，触发检索索引重建（事务提交后异步执行）
+        publishIndexEvent(id);
         return convertToVO(article);
     }
 
@@ -296,6 +310,8 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
                 tagService.updateArticleCount(tagId, -1);
             }
         }
+        // 文章已删除，撤掉检索索引
+        publishIndexEvent(id);
     }
 
     /**
@@ -361,6 +377,8 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
             List<Long> tagIds = articleTagMapper.selectTagIdsByArticleId(id);
             syncTags(id, tagIds, tagIds, oldPublished, newPublished);
         }
+        // 发布状态变了，索引需要重建（下架会撤回索引）
+        publishIndexEvent(id);
     }
 
     /**
@@ -536,6 +554,39 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
                 .orderByDesc(Article::getCreateTime)
                 .last("LIMIT " + max);
         return convertToVOList(articleMapper.selectList(wrapper));
+    }
+
+    /**
+     * SLF4J 日志器。
+     *
+     * <p>刻意不用继承自 {@code ServiceImpl} 的 {@code log} 字段——那是
+     * MyBatis 的 {@code org.apache.ibatis.logging.Log}，接口方法只接受单个 String，
+     * 不支持占位符与异常堆栈，而且生产环境配置为 {@code NoLoggingImpl} 时根本不输出。</p>
+     */
+    private static final org.slf4j.Logger LOGGER =
+            org.slf4j.LoggerFactory.getLogger(ArticleServiceImpl.class);
+
+    /**
+     * 发布「文章内容变更」事件，触发检索索引重建。
+     *
+     * <p>用事件而非直接调用索引服务的原因：</p>
+     * <ol>
+     *   <li>索引重建必须**异步**执行，否则文章保存接口会被切块耗时拖慢</li>
+     *   <li>必须**事务提交后**才执行，否则事务回滚后索引里会残留未发布内容</li>
+     * </ol>
+     *
+     * <p>这两点由 {@code ArticleChunkIndexListener} 上的
+     * {@code @Async + @TransactionalEventListener(AFTER_COMMIT)} 保证。</p>
+     *
+     * @param articleId 文章 ID
+     */
+    private void publishIndexEvent(Long articleId) {
+        try {
+            eventPublisher.publishEvent(new com.blog.rag.event.ArticleChangedEvent(articleId));
+        } catch (Exception e) {
+            // 索引事件发布失败不能影响文章本身的保存结果
+            LOGGER.warn("[RAG] 发布文章索引事件失败，articleId={}", articleId, e);
+        }
     }
 
     /**
